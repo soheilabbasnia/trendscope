@@ -4,12 +4,13 @@ import { clusterArticles } from './deduplicator';
 import { analyzeNewsWithGemini } from '../ai/gemini';
 import { calculateStoryScore } from './ranker';
 import { TelegramBot } from '../telegram/bot';
-import { sendStoryCard } from '../telegram/handlers';
+import { formatStoryGeneralMessage, buildGeneralKeyboard, SourceArticleRef } from '../telegram/formatters';
+import { getTopicThreadId } from '../telegram/topics';
 
 export async function runNewsPipeline(
   env: Env,
   limit: number = 5,
-  minImportanceScore: number = 6.0
+  minImportanceScore: number = 5.0
 ): Promise<Story[]> {
   console.log(`[Pipeline] Running news pipeline (limit: ${limit}, minScore: ${minImportanceScore})`);
   const bot = new TelegramBot((env.TELEGRAM_BOT_TOKEN || '').trim());
@@ -38,11 +39,10 @@ export async function runNewsPipeline(
     }
 
     try {
-      // 3. AI Analysis with Gemini
+      // 3. AI Analysis with Gemini (compact, cost-effective prompt)
       console.log(`[Pipeline] Analyzing story: "${article.title}"`);
       const aiResult = await analyzeNewsWithGemini(article, env.GEMINI_API_KEY);
 
-      // Extract entities (e.g. OpenAI, Nvidia, Google, Apple) from text
       const entities = extractEntities(article.title + ' ' + (aiResult.persian_title || ''));
 
       // 4. Calculate adaptive taste & ranking score
@@ -54,7 +54,7 @@ export async function runNewsPipeline(
         aiResult.relevance_score
       );
 
-      // Filter by minimum importance score
+      // Filter by minimum score if already found some candidates
       if (scores.combinedScore < minImportanceScore && processedStories.length > 0) {
         console.log(`[Pipeline] Skipping story due to low score: ${scores.combinedScore} < ${minImportanceScore}`);
         continue;
@@ -82,20 +82,15 @@ export async function runNewsPipeline(
       // 6. Insert Story
       await env.DB.prepare(`
         INSERT INTO stories (
-          id, title, persian_title, persian_summary, why_it_matters, youtube_angle,
-          controversy_details, verified_reactions, primary_category, entities,
+          id, title, persian_title, persian_summary, primary_category, entities,
           importance_score, relevance_score, combined_score, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'alerted')
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'alerted')
       `)
         .bind(
           storyId,
           article.title,
           aiResult.persian_title,
           aiResult.persian_summary,
-          aiResult.why_it_matters,
-          aiResult.youtube_angle,
-          aiResult.controversy_details,
-          aiResult.verified_reactions,
           aiResult.primary_category,
           JSON.stringify(entities),
           scores.importanceScore,
@@ -109,6 +104,10 @@ export async function runNewsPipeline(
         .bind(storyId, articleId)
         .run();
 
+      const sourcesList: SourceArticleRef[] = [
+        { title: article.title, url: article.url, source: article.source },
+      ];
+
       for (const sup of cluster.supportingArticles) {
         const supInsert = await env.DB.prepare(
           'INSERT OR IGNORE INTO articles (source_id, title, url, content_snippet, published_at) VALUES (?, ?, ?, ?, ?)'
@@ -119,6 +118,7 @@ export async function runNewsPipeline(
           await env.DB.prepare('INSERT OR IGNORE INTO story_articles (story_id, article_id) VALUES (?, ?)')
             .bind(storyId, supInsert.meta.last_row_id)
             .run();
+          sourcesList.push({ title: sup.title, url: sup.url, source: sup.source });
         }
       }
 
@@ -127,10 +127,10 @@ export async function runNewsPipeline(
         title: article.title,
         persian_title: aiResult.persian_title,
         persian_summary: aiResult.persian_summary,
-        why_it_matters: aiResult.why_it_matters,
-        youtube_angle: aiResult.youtube_angle,
-        controversy_details: aiResult.controversy_details,
-        verified_reactions: aiResult.verified_reactions,
+        why_it_matters: null,
+        youtube_angle: null,
+        controversy_details: null,
+        verified_reactions: null,
         confidence_level: 'high',
         importance_score: scores.importanceScore,
         relevance_score: scores.relevanceScore,
@@ -142,9 +142,28 @@ export async function runNewsPipeline(
         updated_at: new Date().toISOString(),
       };
 
-      // 8. Deliver to Telegram
+      // 8. Deliver simplified message to General topic
       const targetChatId = (env.TELEGRAM_CHANNEL_ID || '').trim();
-      await sendStoryCard(bot, targetChatId, undefined, story);
+      const generalThreadId = await getTopicThreadId(env, 'general');
+
+      const messageText = formatStoryGeneralMessage(story, sourcesList);
+      const keyboard = buildGeneralKeyboard(story.id);
+
+      const sendRes = await bot.sendMessage({
+        chat_id: targetChatId,
+        message_thread_id: generalThreadId,
+        text: messageText,
+        reply_markup: keyboard,
+      });
+
+      if (sendRes?.result?.message_id) {
+        await env.DB.prepare(`
+          INSERT INTO telegram_deliveries (story_id, chat_id, message_thread_id, message_id, delivery_type)
+          VALUES (?, ?, ?, ?, 'general')
+        `)
+          .bind(storyId, targetChatId, generalThreadId || null, sendRes.result.message_id)
+          .run();
+      }
 
       processedStories.push(story);
     } catch (err: any) {

@@ -3,10 +3,6 @@ import { FetchedArticle } from '../news/fetcher';
 export interface AIAnalysisResult {
   persian_title: string;
   persian_summary: string;
-  why_it_matters: string;
-  youtube_angle: string;
-  controversy_details: string;
-  verified_reactions: string;
   primary_category: string;
   importance_score: number;
   relevance_score: number;
@@ -18,26 +14,29 @@ export async function analyzeNewsWithGemini(
   modelName: string = 'gemini-3.5-flash-lite'
 ): Promise<AIAnalysisResult> {
   const prompt = `
-You are a senior tech news editor and YouTube technology show producer for a top Persian-language tech channel.
-Analyze the following global tech news article:
+You are a senior tech news editor for a technology YouTube channel.
+Analyze the following tech news article:
 
 Headline: ${article.title}
 Source: ${article.source}
 Published At: ${article.publishedAt}
 Snippet: ${article.snippet}
 
-Produce a structured Persian intelligence briefing for a YouTube video presenter.
+Produce a concise, factual Persian briefing.
+Requirements:
+1. "persian_title": Accurate, compelling Persian headline (no fake clickbait).
+2. "persian_summary": Concise Persian summary in MAXIMUM 2-3 lines explaining the core factual development.
+3. "primary_category": One main category (e.g. AI, Hardware, Software, Mobile, BigTech, Security, Cloud, Chips).
+4. "importance_score": Global tech industry significance (1.0 to 10.0).
+5. "relevance_score": Creator channel interest and audience engagement (1.0 to 10.0).
+
 Return ONLY valid JSON matching this schema:
 {
-  "persian_title": "عنوان جذاب، دقیق و تیتریک به زبان فارسی بدون مبالغه دروغین",
-  "persian_summary": "خلاصه کاملاً روان، فارسی و خوانا در ۲ الی ۳ جمله درباره اصل اتفاق",
-  "why_it_matters": "چرا این خبر اهمیت استراتژیک دارد و در صنعت فناوری تاثیرگذار است؟",
-  "youtube_angle": "زاویه جذاب برای صحبت مجری در یوتیوب (Hook، سوال چالشی از مخاطب یا تحلیل عمیق)",
-  "controversy_details": "هرگونه حاشیه، انتقاد، بازخورد کاربران یا رقبا (در صورت نبود بنویسید: بدون حاشیه خاص)",
-  "verified_reactions": "واکنش یا نقل قول افراد کلیدی یا رقبا (در صورت نبود بنویسید: بدون واکنش رسمی)",
-  "primary_category": "AI, Hardware, Software, Mobile, BigTech, Security, etc.",
+  "persian_title": "تیتر دقیق و جذاب به زبان فارسی",
+  "persian_summary": "خلاصه کاملاً روان، دقیق و حداکثر در ۲ الی ۳ خط درباره اصل رویداد.",
+  "primary_category": "AI",
   "importance_score": 8.5,
-  "relevance_score": 9.0
+  "relevance_score": 8.0
 }
 `;
 

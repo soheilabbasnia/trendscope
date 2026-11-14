@@ -1,6 +1,6 @@
 {
   "name": "trendscope",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Telegram-first AI tech news intelligence platform powered by Cloudflare Workers, D1, and Google Gemini",
   "main": "src/index.ts",
   "scripts": {
