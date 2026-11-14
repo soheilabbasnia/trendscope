@@ -1,5 +1,6 @@
 import { Env, TelegramUpdate, Story, InlineKeyboardMarkup } from '../types';
 import { TelegramBot } from './bot';
+import { runNewsPipeline } from '../news/pipeline';
 
 export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Promise<void> {
   const bot = new TelegramBot((env.TELEGRAM_BOT_TOKEN || '').trim());
@@ -57,14 +58,15 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Pr
           return;
         }
         const detailsText = `
-<b>🔍 جزییات تکمیلی:</b>
-<b>زاویه و ایده ضبط یوتیوب:</b>
+<b>🔍 جزییات تکمیلی تحلیل:</b>
+
+💡 <b>زاویه و ایده ضبط یوتیوب:</b>
 ${story.youtube_angle || 'ثبت نشده'}
 
-<b>حواشی و نظرات جامعه کاربری:</b>
+🔥 <b>حواشی و نظرات:</b>
 ${story.controversy_details || 'بدون حاشیه خاص'}
 
-<b>واکنش‌ها:</b>
+🗣 <b>واکنش‌های رسمی:</b>
 ${story.verified_reactions || 'ثبت نشده'}
         `.trim();
         await bot.sendMessage({
@@ -106,7 +108,7 @@ ${story.verified_reactions || 'ثبت نشده'}
 
 دستورات در دسترس:
 /status - وضعیت پلتفرم و دیتابیس
-/refresh - درخواست واکشی دستی اخبار
+/refresh - استخراج و تحلیل آنی خبر با Gemini
 /latest - جدیدترین خبرهای تحلیل‌شده
 /top - مهم‌ترین خبرهای رتبه‌بندی‌شده
 /selected - خبرهای منتخب ضبط این هفته
@@ -124,12 +126,12 @@ ${story.verified_reactions || 'ثبت نشده'}
 📖 <b>راهنمای دستورات TrendScope:</b>
 
 ▫️ <b>/status:</b> نمایش وضعیت سرور Cloudflare، دیتابیس D1 و اتصال Gemini.
-▫️ <b>/refresh:</b> شروع فوری پویش اخبار بدون نیاز به انتظار برای اسکل کرون ۱۲ ساعته.
-▫️ <b>/latest:</b> فهرست ۵ خبر اخیر استخراج‌شده همراه با دکمه‌های انتخاب، ذخیره و رد.
-▫️ <b>/top:</b> فهرست باکیفیت‌ترین خبرها بر اساس امتیاز ترکیبی و فاکتور سلیقه کانال.
+▫️ <b>/refresh:</b> شروع فوری واکشی یک خبر تازه و تحلیل هوش مصنوعی Gemini.
+▫️ <b>/latest:</b> فهرست خبرهای اخیر همراه با دکمه‌های تعاملی.
+▫️ <b>/top:</b> فهرست باکیفیت‌ترین خبرها بر اساس امتیاز هوش مصنوعی.
 ▫️ <b>/selected:</b> خبرهایی که برای ضبط ویدیوی دوشنبه یا جمعه علامت‌گذاری کرده‌اید.
-▫️ <b>/saved:</b> آرشیو خبرهایی که جهت بررسی بیشتر ذخیره کرده‌اید.
-▫️ <b>/episode:</b> پکیج آماده‌سازی ویدیوی پیش‌رو با تفکیک دوره‌های زمانی.
+▫️ <b>/saved:</b> آرشیو خبرهایی که ذخیره کرده‌اید.
+▫️ <b>/episode:</b> پکیج آماده‌سازی ویدیوی پیش‌رو.
         `.trim();
         await bot.sendMessage({ chat_id: chatId, message_thread_id: threadId, text: help });
         break;
@@ -146,7 +148,7 @@ ${story.verified_reactions || 'ثبت نشده'}
 🟢 <b>Cloudflare Worker:</b> فعال و آنلاین
 💾 <b>دیتابیس D1:</b> متصل (${dbCheck?.cnt || 0} خبر ثبت‌شده)
 📡 <b>منابع فعال:</b> ${sourcesCount?.cnt || 0} منبع
-🧠 <b>مدل هوش مصنوعی:</b> Google Gemini 2.5 Flash
+🧠 <b>مدل هوش مصنوعی:</b> Google Gemini 3.5 Flash Lite
 ⏱ <b>منطقه زمانی:</b> ${env.TIMEZONE}
 🔄 <b>آخرین پردازش:</b> ${lastJob ? `${lastJob.job_type} (${lastJob.status})` : 'هنوز اجرا نشده'}
         `.trim();
@@ -159,11 +161,31 @@ ${story.verified_reactions || 'ثبت نشده'}
           await bot.sendMessage({ chat_id: chatId, message_thread_id: threadId, text: '⛔️ شما دسترسی اجرای این دستور را ندارید.' });
           return;
         }
+
         await bot.sendMessage({
           chat_id: chatId,
           message_thread_id: threadId,
-          text: '⏳ <b>فرآیند جمع‌آوری و تحلیل اخبار آغاز شد.</b>\nبه محض اتمام و استخراج ترندهای جدید، نتایج ارسال خواهند شد.',
+          text: '⏳ <b>فرآیند جمع‌آوری خبر و تحلیل با هوش مصنوعی Gemini آغاز شد...</b>',
         });
+
+        try {
+          // Limit to 1 news story for quick testing as requested
+          const stories = await runNewsPipeline(env, 1);
+          if (stories.length === 0) {
+            await bot.sendMessage({
+              chat_id: chatId,
+              message_thread_id: threadId,
+              text: 'ℹ️ خبر جدیدی در این لحظه یافت نشد (تمام موارد اخیر قبلاً پردازش شده‌اند).',
+            });
+          }
+        } catch (err: any) {
+          console.error('[Refresh Error]', err);
+          await bot.sendMessage({
+            chat_id: chatId,
+            message_thread_id: threadId,
+            text: `⚠️ خطا در اجرای فرآیند هوش مصنوعی: ${err.message}`,
+          });
+        }
         break;
       }
 
@@ -307,11 +329,14 @@ export async function sendStoryCard(bot: TelegramBot, chatId: number | string, t
 🔥 <b>${story.persian_title || story.title}</b>
 <i>${story.title}</i>
 
-📝 <b>خلاصه:</b>
+📝 <b>خلاصه فارسی:</b>
 ${story.persian_summary || 'خلاصه در دسترس نیست.'}
 
 💡 <b>چرا اهمیت دارد؟</b>
 ${story.why_it_matters || 'تحلیل ثبت نشده.'}
+
+🎬 <b>ایده ضبط برای مجری:</b>
+${story.youtube_angle || 'ثبت نشده.'}
 
 📊 <b>امتیاز:</b> ${story.combined_score.toFixed(1)}/10 | 🎯 <b>دسته‌بندی:</b> ${story.primary_category || 'عمومی'}
   `.trim();

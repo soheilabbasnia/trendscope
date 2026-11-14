@@ -1,0 +1,118 @@
+export interface FetchedArticle {
+  title: string;
+  url: string;
+  snippet: string;
+  publishedAt: string;
+  source: string;
+}
+
+const TECH_FEEDS = [
+  { name: 'TechCrunch', url: 'https://techcrunch.com/feed/' },
+  { name: 'Ars Technica', url: 'https://arstechnica.com/feed/' },
+  { name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml' },
+];
+
+export async function fetchTopTechNews(limit: number = 1): Promise<FetchedArticle[]> {
+  const items: FetchedArticle[] = [];
+
+  for (const feed of TECH_FEEDS) {
+    if (items.length >= limit) break;
+
+    try {
+      console.log(`[Fetcher] Fetching feed: ${feed.name} (${feed.url})`);
+      const response = await fetch(feed.url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+        },
+      });
+
+      if (!response.ok) {
+        console.warn(`[Fetcher] Feed ${feed.name} returned HTTP ${response.status}`);
+        continue;
+      }
+
+      const xml = await response.text();
+      const parsedItems = parseRssOrAtom(xml, feed.name, limit - items.length);
+      items.push(...parsedItems);
+    } catch (err: any) {
+      console.error(`[Fetcher] Failed to fetch feed ${feed.name}:`, err.message);
+    }
+  }
+
+  if (items.length === 0) {
+    throw new Error('All tech feeds failed or returned empty items.');
+  }
+
+  return items;
+}
+
+function parseRssOrAtom(xml: string, sourceName: string, maxItems: number): FetchedArticle[] {
+  const items: FetchedArticle[] = [];
+
+  // Match RSS <item>
+  const itemMatches = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
+  for (const itemXml of itemMatches) {
+    if (items.length >= maxItems) break;
+
+    const titleMatch = itemXml.match(/<title>([\s\S]*?)<\/title>/i);
+    const linkMatch = itemXml.match(/<link>([\s\S]*?)<\/link>/i);
+    const descMatch = itemXml.match(/<description>([\s\S]*?)<\/description>/i) || itemXml.match(/<content:encoded>([\s\S]*?)<\/content:encoded>/i);
+    const pubDateMatch = itemXml.match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
+
+    const title = cleanXmlText(titleMatch ? titleMatch[1] : '');
+    const url = cleanXmlText(linkMatch ? linkMatch[1] : '');
+    let snippet = cleanXmlText(descMatch ? descMatch[1] : '').replace(/<[^>]+>/g, '').trim();
+
+    if (title && url) {
+      items.push({
+        title,
+        url,
+        snippet: snippet.slice(0, 500),
+        publishedAt: pubDateMatch ? pubDateMatch[1] : new Date().toISOString(),
+        source: sourceName,
+      });
+    }
+  }
+
+  // Match Atom <entry> if no RSS items found
+  if (items.length === 0) {
+    const entryMatches = xml.match(/<entry[\s\S]*?<\/entry>/gi) || [];
+    for (const entryXml of entryMatches) {
+      if (items.length >= maxItems) break;
+
+      const titleMatch = entryXml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+      const linkMatch = entryXml.match(/<link[^>]*href="([^"]+)"/i) || entryXml.match(/<link[^>]*>([\s\S]*?)<\/link>/i);
+      const summaryMatch = entryXml.match(/<summary[^>]*>([\s\S]*?)<\/summary>/i) || entryXml.match(/<content[^>]*>([\s\S]*?)<\/content>/i);
+      const pubDateMatch = entryXml.match(/<published>([\s\S]*?)<\/published>/i) || entryXml.match(/<updated>([\s\S]*?)<\/updated>/i);
+
+      const title = cleanXmlText(titleMatch ? titleMatch[1] : '');
+      const url = cleanXmlText(linkMatch ? linkMatch[1] : '');
+      let snippet = cleanXmlText(summaryMatch ? summaryMatch[1] : '').replace(/<[^>]+>/g, '').trim();
+
+      if (title && url) {
+        items.push({
+          title,
+          url,
+          snippet: snippet.slice(0, 500),
+          publishedAt: pubDateMatch ? pubDateMatch[1] : new Date().toISOString(),
+          source: sourceName,
+        });
+      }
+    }
+  }
+
+  return items;
+}
+
+function cleanXmlText(text: string): string {
+  return text
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#039;/g, "'")
+    .trim();
+}

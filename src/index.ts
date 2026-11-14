@@ -1,6 +1,7 @@
 import { Env, TelegramUpdate } from './types';
 import { handleTelegramUpdate } from './telegram/handlers';
 import { TelegramBot } from './telegram/bot';
+import { runNewsPipeline } from './news/pipeline';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -24,7 +25,33 @@ export default {
       );
     }
 
-    // 2. Comprehensive Debug & Diagnostics Endpoint
+    // 2. Trigger Single News AI Test Endpoint
+    if (url.pathname === '/api/trigger-test') {
+      try {
+        const stories = await runNewsPipeline(env, 1);
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            message: 'Single news AI pipeline executed successfully',
+            count: stories.length,
+            stories,
+          }, null, 2),
+          {
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({ ok: false, error: err.message, stack: err.stack }, null, 2),
+          {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+    }
+
+    // 3. Comprehensive Debug & Diagnostics Endpoint
     if (url.pathname === '/api/debug') {
       const botToken = (env.TELEGRAM_BOT_TOKEN || '').trim();
       const bot = new TelegramBot(botToken);
@@ -84,7 +111,7 @@ export default {
       });
     }
 
-    // 3. Webhook Setup Helper
+    // 4. Webhook Setup Helper
     if (url.pathname === '/setup-webhook') {
       const webhookUrl = `${url.origin}/webhook/telegram`;
       const secret = (env.TELEGRAM_WEBHOOK_SECRET || '').trim();
@@ -96,13 +123,13 @@ export default {
       });
     }
 
-    // 4. Telegram Webhook Endpoint
+    // 5. Telegram Webhook Endpoint
     if (url.pathname === '/webhook/telegram' && request.method === 'POST') {
       const receivedSecret = (request.headers.get('X-Telegram-Bot-Api-Secret-Token') || '').trim();
       const expectedSecret = (env.TELEGRAM_WEBHOOK_SECRET || '').trim();
 
       if (receivedSecret !== expectedSecret) {
-        console.error(`[Webhook] 403 Forbidden! Expected: '${expectedSecret ? 'CONFIGURED' : 'EMPTY'}', Received: '${receivedSecret ? 'CONFIGURED' : 'EMPTY'}'`);
+        console.error(`[Webhook] 403 Forbidden!`);
         return new Response('Invalid secret token', { status: 403 });
       }
 
