@@ -4,6 +4,7 @@ export interface Env {
   DB: D1Database;
   PROJECT_NAME: string;
   TIMEZONE: string;
+  DEBUG?: string;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_CHANNEL_ID: string;
   TELEGRAM_ADMIN_ID: string;
