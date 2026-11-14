@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "trendscope",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "trendscope-db",
+      "database_id": "02964f0b-06ca-4612-9ce5-f29b2c1039f0"
+    }
+  ],
+  "vars": {
+    "PROJECT_NAME": "TrendScope",
+    "TIMEZONE": "Asia/Tehran"
+  },
+  "triggers": {
+    "crons": [
+      "0 */12 * * *",
+      "30 3 * * 1,5"
+    ]
+  }
+}
