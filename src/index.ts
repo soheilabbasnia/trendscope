@@ -2,6 +2,7 @@ import { Env, TelegramUpdate } from './types';
 import { handleTelegramUpdate } from './telegram/handlers';
 import { TelegramBot } from './telegram/bot';
 import { runNewsPipeline } from './news/pipeline';
+import { handleScheduledEvent, generateEpisodePackage } from './cron/scheduled';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -25,14 +26,15 @@ export default {
       );
     }
 
-    // 2. Trigger Single News AI Test Endpoint
+    // 2. Trigger News Pipeline Endpoint (e.g. ?limit=5)
     if (url.pathname === '/api/trigger-test') {
       try {
-        const stories = await runNewsPipeline(env, 1);
+        const limitParam = parseInt(url.searchParams.get('limit') || '5', 10);
+        const stories = await runNewsPipeline(env, limitParam, 5.0);
         return new Response(
           JSON.stringify({
             ok: true,
-            message: 'Single news AI pipeline executed successfully',
+            message: `News pipeline executed successfully (${stories.length} stories)`,
             count: stories.length,
             stories,
           }, null, 2),
@@ -51,7 +53,23 @@ export default {
       }
     }
 
-    // 3. Comprehensive Debug & Diagnostics Endpoint
+    // 3. Trigger Episode Package Generation manually
+    if (url.pathname === '/api/trigger-episode') {
+      try {
+        const result = await generateEpisodePackage(env);
+        return new Response(
+          JSON.stringify({ ok: true, result }, null, 2),
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({ ok: false, error: err.message }, null, 2),
+          { status: 500, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    // 4. Comprehensive Debug & Diagnostics Endpoint
     if (url.pathname === '/api/debug') {
       const botToken = (env.TELEGRAM_BOT_TOKEN || '').trim();
       const bot = new TelegramBot(botToken);
@@ -111,7 +129,7 @@ export default {
       });
     }
 
-    // 4. Webhook Setup Helper
+    // 5. Webhook Setup Helper
     if (url.pathname === '/setup-webhook') {
       const webhookUrl = `${url.origin}/webhook/telegram`;
       const secret = (env.TELEGRAM_WEBHOOK_SECRET || '').trim();
@@ -123,7 +141,7 @@ export default {
       });
     }
 
-    // 5. Telegram Webhook Endpoint
+    // 6. Telegram Webhook Endpoint
     if (url.pathname === '/webhook/telegram' && request.method === 'POST') {
       const receivedSecret = (request.headers.get('X-Telegram-Bot-Api-Secret-Token') || '').trim();
       const expectedSecret = (env.TELEGRAM_WEBHOOK_SECRET || '').trim();
@@ -150,6 +168,6 @@ export default {
   },
 
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    console.log(`[Cron] Triggered at ${new Date().toISOString()} for cron ${event.cron}`);
+    ctx.waitUntil(handleScheduledEvent(event, env));
   },
 };

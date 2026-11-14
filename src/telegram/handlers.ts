@@ -1,6 +1,7 @@
 import { Env, TelegramUpdate, Story, InlineKeyboardMarkup } from '../types';
 import { TelegramBot } from './bot';
 import { runNewsPipeline } from '../news/pipeline';
+import { updateTastePreference } from '../news/ranker';
 
 export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Promise<void> {
   const bot = new TelegramBot((env.TELEGRAM_BOT_TOKEN || '').trim());
@@ -13,6 +14,22 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Pr
       const userId = String(cb.from.id);
       const data = cb.data || '';
       console.log(`[Telegram:Callback] From: ${userId}, Data: ${data}`);
+
+      // Handle general views like view:selected
+      if (data === 'view:selected') {
+        const { results } = await env.DB.prepare("SELECT * FROM stories WHERE status = 'selected' ORDER BY updated_at DESC").all<Story>();
+        let summary = `🎬 <b>خبرهای منتخب برای ضبط (${results?.length || 0} مورد):</b>\n\n`;
+        (results || []).forEach((s, idx) => {
+          summary += `${idx + 1}. <b>${s.persian_title || s.title}</b>\n`;
+        });
+        await bot.sendMessage({
+          chat_id: cb.message?.chat.id || cb.from.id,
+          message_thread_id: cb.message?.message_thread_id,
+          text: summary,
+        });
+        await bot.answerCallbackQuery({ callback_query_id: cb.id });
+        return;
+      }
 
       // Security check: Only configured admin can interact
       if (userId !== adminId) {
@@ -31,29 +48,46 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Pr
         return;
       }
 
+      const currentStory = await env.DB.prepare('SELECT * FROM stories WHERE id = ?').bind(storyId).first<Story>();
+
       if (action === 'save') {
         await env.DB.prepare("UPDATE stories SET status = 'saved', updated_at = datetime('now') WHERE id = ?").bind(storyId).run();
         await recordFeedback(env.DB, storyId, userId, 'save');
+        if (currentStory) {
+          const entities = currentStory.entities ? JSON.parse(currentStory.entities) : [];
+          await updateTastePreference(env.DB, currentStory.primary_category || '', entities, 'save');
+        }
         await bot.answerCallbackQuery({ callback_query_id: cb.id, text: '⭐ خبر ذخیره شد.' });
         await updateMessageStatusBanner(bot, cb.message, '⭐ در لیست ذخیره‌شده‌ها قرار گرفت');
       } else if (action === 'select') {
         await env.DB.prepare("UPDATE stories SET status = 'selected', updated_at = datetime('now') WHERE id = ?").bind(storyId).run();
         await recordFeedback(env.DB, storyId, userId, 'select');
+        if (currentStory) {
+          const entities = currentStory.entities ? JSON.parse(currentStory.entities) : [];
+          await updateTastePreference(env.DB, currentStory.primary_category || '', entities, 'select');
+        }
         await bot.answerCallbackQuery({ callback_query_id: cb.id, text: '🎬 خبر برای ضبط ویدیو انتخاب شد.' });
         await updateMessageStatusBanner(bot, cb.message, '🎬 انتخاب‌شده برای ضبط ویدیو');
       } else if (action === 'reject') {
         await env.DB.prepare("UPDATE stories SET status = 'rejected', updated_at = datetime('now') WHERE id = ?").bind(storyId).run();
         await recordFeedback(env.DB, storyId, userId, 'reject');
+        if (currentStory) {
+          const entities = currentStory.entities ? JSON.parse(currentStory.entities) : [];
+          await updateTastePreference(env.DB, currentStory.primary_category || '', entities, 'reject');
+        }
         await bot.answerCallbackQuery({ callback_query_id: cb.id, text: '❌ خبر رد شد.' });
         await updateMessageStatusBanner(bot, cb.message, '❌ این خبر رد شد');
       } else if (action === 'cover') {
         await env.DB.prepare("UPDATE stories SET status = 'covered', updated_at = datetime('now') WHERE id = ?").bind(storyId).run();
         await recordFeedback(env.DB, storyId, userId, 'cover');
+        if (currentStory) {
+          const entities = currentStory.entities ? JSON.parse(currentStory.entities) : [];
+          await updateTastePreference(env.DB, currentStory.primary_category || '', entities, 'cover');
+        }
         await bot.answerCallbackQuery({ callback_query_id: cb.id, text: '✅ وضعیت به پوشش‌داده‌شده تغییر یافت.' });
         await updateMessageStatusBanner(bot, cb.message, '✅ در ویدیو پوشش داده شد');
       } else if (action === 'details') {
-        const story = await env.DB.prepare("SELECT * FROM stories WHERE id = ?").bind(storyId).first<Story>();
-        if (!story) {
+        if (!currentStory) {
           await bot.answerCallbackQuery({ callback_query_id: cb.id, text: 'خبر یافت نشد.' });
           return;
         }
@@ -61,13 +95,13 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Pr
 <b>🔍 جزییات تکمیلی تحلیل:</b>
 
 💡 <b>زاویه و ایده ضبط یوتیوب:</b>
-${story.youtube_angle || 'ثبت نشده'}
+${currentStory.youtube_angle || 'ثبت نشده'}
 
 🔥 <b>حواشی و نظرات:</b>
-${story.controversy_details || 'بدون حاشیه خاص'}
+${currentStory.controversy_details || 'بدون حاشیه خاص'}
 
 🗣 <b>واکنش‌های رسمی:</b>
-${story.verified_reactions || 'ثبت نشده'}
+${currentStory.verified_reactions || 'ثبت نشده'}
         `.trim();
         await bot.sendMessage({
           chat_id: cb.message?.chat.id || cb.from.id,
@@ -108,7 +142,7 @@ ${story.verified_reactions || 'ثبت نشده'}
 
 دستورات در دسترس:
 /status - وضعیت پلتفرم و دیتابیس
-/refresh - استخراج و تحلیل آنی خبر با Gemini
+/refresh - استخراج و تحلیل ۵ خبر برتر فناوری با Gemini
 /latest - جدیدترین خبرهای تحلیل‌شده
 /top - مهم‌ترین خبرهای رتبه‌بندی‌شده
 /selected - خبرهای منتخب ضبط این هفته
@@ -116,8 +150,7 @@ ${story.verified_reactions || 'ثبت نشده'}
 /episode - پکیج ضبط جاری
 /help - راهنمای سیستم
         `.trim();
-        const res = await bot.sendMessage({ chat_id: chatId, message_thread_id: threadId, text: welcome });
-        console.log('[Telegram:Response] /start sent:', JSON.stringify(res));
+        await bot.sendMessage({ chat_id: chatId, message_thread_id: threadId, text: welcome });
         break;
       }
 
@@ -125,13 +158,13 @@ ${story.verified_reactions || 'ثبت نشده'}
         const help = `
 📖 <b>راهنمای دستورات TrendScope:</b>
 
-▫️ <b>/status:</b> نمایش وضعیت سرور Cloudflare، دیتابیس D1 و اتصال Gemini.
-▫️ <b>/refresh:</b> شروع فوری واکشی یک خبر تازه و تحلیل هوش مصنوعی Gemini.
+▫️ <b>/status:</b> نمایش وضعیت سرور Cloudflare، دیتابیس D1 و کرون جاب‌ها.
+▫️ <b>/refresh:</b> استخراج ۵ خبر تازه فناوری و تحلیل با هوش مصنوعی.
 ▫️ <b>/latest:</b> فهرست خبرهای اخیر همراه با دکمه‌های تعاملی.
-▫️ <b>/top:</b> فهرست باکیفیت‌ترین خبرها بر اساس امتیاز هوش مصنوعی.
-▫️ <b>/selected:</b> خبرهایی که برای ضبط ویدیوی دوشنبه یا جمعه علامت‌گذاری کرده‌اید.
+▫️ <b>/top:</b> فهرست باکیفیت‌ترین خبرها بر اساس امتیاز ترکیبی.
+▫️ <b>/selected:</b> خبرهایی که برای ضبط ویدیوی دوشنبه یا جمعه انتخاب شده‌اند.
 ▫️ <b>/saved:</b> آرشیو خبرهایی که ذخیره کرده‌اید.
-▫️ <b>/episode:</b> پکیج آماده‌سازی ویدیوی پیش‌رو.
+▫️ <b>/episode:</b> پکیج آماده‌سازی ویدیوی جاری (تولید خودکار دوشنبه و جمعه ۰۷:۰۰).
         `.trim();
         await bot.sendMessage({ chat_id: chatId, message_thread_id: threadId, text: help });
         break;
@@ -151,6 +184,7 @@ ${story.verified_reactions || 'ثبت نشده'}
 🧠 <b>مدل هوش مصنوعی:</b> Google Gemini 3.5 Flash Lite
 ⏱ <b>منطقه زمانی:</b> ${env.TIMEZONE}
 🔄 <b>آخرین پردازش:</b> ${lastJob ? `${lastJob.job_type} (${lastJob.status})` : 'هنوز اجرا نشده'}
+⏰ <b>پکیج خودکار ضبط:</b> دوشنبه و جمعه ساعت ۰۷:۰۰ صبح
         `.trim();
         await bot.sendMessage({ chat_id: chatId, message_thread_id: threadId, text: statusText });
         break;
@@ -165,17 +199,23 @@ ${story.verified_reactions || 'ثبت نشده'}
         await bot.sendMessage({
           chat_id: chatId,
           message_thread_id: threadId,
-          text: '⏳ <b>فرآیند جمع‌آوری خبر و تحلیل با هوش مصنوعی Gemini آغاز شد...</b>',
+          text: '⏳ <b>فرآیند واکشی و تحلیل ۵ خبر تازه فناوری با هوش مصنوعی Gemini آغاز شد...</b>\nخبرهای تحلیل‌شده به محض آماده‌سازی به گروه ارسال می‌شوند.',
         });
 
         try {
-          // Limit to 1 news story for quick testing as requested
-          const stories = await runNewsPipeline(env, 1);
+          // Process 5 stories as requested
+          const stories = await runNewsPipeline(env, 5, 5.0);
           if (stories.length === 0) {
             await bot.sendMessage({
               chat_id: chatId,
               message_thread_id: threadId,
               text: 'ℹ️ خبر جدیدی در این لحظه یافت نشد (تمام موارد اخیر قبلاً پردازش شده‌اند).',
+            });
+          } else {
+            await bot.sendMessage({
+              chat_id: chatId,
+              message_thread_id: threadId,
+              text: `✅ <b>پردازش تکمیل شد!</b> تعداد ${stories.length} خبر تازه فناوری با موفقیت به گروه ارسال گردید.`,
             });
           }
         } catch (err: any) {

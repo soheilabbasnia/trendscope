@@ -10,16 +10,15 @@ const TECH_FEEDS = [
   { name: 'TechCrunch', url: 'https://techcrunch.com/feed/' },
   { name: 'Ars Technica', url: 'https://arstechnica.com/feed/' },
   { name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml' },
+  { name: 'Wired Gear', url: 'https://www.wired.com/feed/category/gear/latest/rss' },
+  { name: 'Engadget', url: 'https://www.engadget.com/rss.xml' },
 ];
 
-export async function fetchTopTechNews(limit: number = 1): Promise<FetchedArticle[]> {
-  const items: FetchedArticle[] = [];
+export async function fetchTopTechNews(maxPerFeed: number = 6): Promise<FetchedArticle[]> {
+  const allArticles: FetchedArticle[] = [];
 
   for (const feed of TECH_FEEDS) {
-    if (items.length >= limit) break;
-
     try {
-      console.log(`[Fetcher] Fetching feed: ${feed.name} (${feed.url})`);
       const response = await fetch(feed.url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -33,24 +32,20 @@ export async function fetchTopTechNews(limit: number = 1): Promise<FetchedArticl
       }
 
       const xml = await response.text();
-      const parsedItems = parseRssOrAtom(xml, feed.name, limit - items.length);
-      items.push(...parsedItems);
+      const parsed = parseRssOrAtom(xml, feed.name, maxPerFeed);
+      allArticles.push(...parsed);
     } catch (err: any) {
       console.error(`[Fetcher] Failed to fetch feed ${feed.name}:`, err.message);
     }
   }
 
-  if (items.length === 0) {
-    throw new Error('All tech feeds failed or returned empty items.');
-  }
-
-  return items;
+  return allArticles;
 }
 
 function parseRssOrAtom(xml: string, sourceName: string, maxItems: number): FetchedArticle[] {
   const items: FetchedArticle[] = [];
 
-  // Match RSS <item>
+  // 1. Try RSS <item>
   const itemMatches = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
   for (const itemXml of itemMatches) {
     if (items.length >= maxItems) break;
@@ -75,7 +70,7 @@ function parseRssOrAtom(xml: string, sourceName: string, maxItems: number): Fetc
     }
   }
 
-  // Match Atom <entry> if no RSS items found
+  // 2. Try Atom <entry>
   if (items.length === 0) {
     const entryMatches = xml.match(/<entry[\s\S]*?<\/entry>/gi) || [];
     for (const entryXml of entryMatches) {
