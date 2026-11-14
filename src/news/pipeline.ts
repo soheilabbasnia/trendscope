@@ -3,21 +3,21 @@ import { fetchTopTechNews } from './fetcher';
 import { clusterArticles } from './deduplicator';
 import { analyzeNewsWithGemini } from '../ai/gemini';
 import { calculateStoryScore } from './ranker';
+import { evaluateTechnologyRelevance, isQualifyingScore, MIN_QUALIFYING_SCORE } from './filter';
 import { TelegramBot } from '../telegram/bot';
 import { formatStoryGeneralMessage, buildGeneralKeyboard, SourceArticleRef } from '../telegram/formatters';
 import { getTopicThreadId } from '../telegram/topics';
 
 export async function runNewsPipeline(
   env: Env,
-  limit: number = 5,
-  minImportanceScore: number = 5.0
+  limit: number = 5
 ): Promise<Story[]> {
-  console.log(`[Pipeline] Running news pipeline (limit: ${limit}, minScore: ${minImportanceScore})`);
+  console.log(`[Pipeline] Running news pipeline (limit: ${limit}, strictThreshold: > ${MIN_QUALIFYING_SCORE})`);
   const bot = new TelegramBot((env.TELEGRAM_BOT_TOKEN || '').trim());
   const processedStories: Story[] = [];
 
   // 1. Fetch fresh pool of tech news
-  const rawArticles = await fetchTopTechNews(6);
+  const rawArticles = await fetchTopTechNews(8);
   console.log(`[Pipeline] Fetched ${rawArticles.length} raw articles from feeds.`);
 
   // 2. Cluster related stories & deduplicate
@@ -39,13 +39,14 @@ export async function runNewsPipeline(
     }
 
     try {
-      // 3. AI Analysis with Gemini (compact, cost-effective prompt)
+      // 3. AI Analysis with Gemini
       console.log(`[Pipeline] Analyzing story: "${article.title}"`);
       const aiResult = await analyzeNewsWithGemini(article, env.GEMINI_API_KEY);
 
+      // Extract entities
       const entities = extractEntities(article.title + ' ' + (aiResult.persian_title || ''));
 
-      // 4. Calculate adaptive taste & ranking score
+      // 4. Calculate adaptive taste & ranking score (maintains separate importance and relevance)
       const scores = await calculateStoryScore(
         env.DB,
         aiResult.primary_category,
@@ -54,15 +55,9 @@ export async function runNewsPipeline(
         aiResult.relevance_score
       );
 
-      // Filter by minimum score if already found some candidates
-      if (scores.combinedScore < minImportanceScore && processedStories.length > 0) {
-        console.log(`[Pipeline] Skipping story due to low score: ${scores.combinedScore} < ${minImportanceScore}`);
-        continue;
-      }
-
       const storyId = crypto.randomUUID();
 
-      // 5. Store source & article in D1
+      // Ensure source exists
       await env.DB.prepare('INSERT OR IGNORE INTO sources (name, url, type) VALUES (?, ?, ?)')
         .bind(article.source, `source://${article.source}`, 'rss')
         .run();
@@ -71,6 +66,7 @@ export async function runNewsPipeline(
         .bind(article.source)
         .first<{ id: number }>();
 
+      // Insert article
       const articleInsert = await env.DB.prepare(
         'INSERT INTO articles (source_id, title, url, content_snippet, published_at) VALUES (?, ?, ?, ?, ?)'
       )
@@ -79,7 +75,70 @@ export async function runNewsPipeline(
 
       const articleId = articleInsert.meta.last_row_id;
 
-      // 6. Insert Story
+      // 5. Strict Technology Scope Filter
+      const techEvaluation = evaluateTechnologyRelevance(aiResult, article.title, article.snippet);
+      if (!techEvaluation.isEligible) {
+        console.log(`[Pipeline:Filter] Excluded non-tech story: "${article.title}" - ${techEvaluation.reason}`);
+        // Store in D1 for deduplication & auditing, but DO NOT publish
+        await env.DB.prepare(`
+          INSERT INTO stories (
+            id, title, persian_title, persian_summary, primary_category, entities,
+            importance_score, relevance_score, combined_score, status, rejection_reason
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'filtered_non_tech', ?)
+        `)
+          .bind(
+            storyId,
+            article.title,
+            aiResult.persian_title,
+            aiResult.persian_summary,
+            aiResult.primary_category,
+            JSON.stringify(entities),
+            scores.importanceScore,
+            scores.relevanceScore,
+            scores.combinedScore,
+            techEvaluation.reason
+          )
+          .run();
+
+        await env.DB.prepare('INSERT INTO story_articles (story_id, article_id) VALUES (?, ?)')
+          .bind(storyId, articleId)
+          .run();
+
+        continue;
+      }
+
+      // 6. Minimum Score Threshold Check (STRICTLY GREATER than 8.5)
+      if (!isQualifyingScore(scores.combinedScore)) {
+        console.log(`[Pipeline:Filter] Excluded low score: "${article.title}" (Score: ${scores.combinedScore} <= ${MIN_QUALIFYING_SCORE})`);
+        // Store in D1 for deduplication & auditing, but DO NOT publish
+        await env.DB.prepare(`
+          INSERT INTO stories (
+            id, title, persian_title, persian_summary, primary_category, entities,
+            importance_score, relevance_score, combined_score, status, rejection_reason
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'filtered_low_score', ?)
+        `)
+          .bind(
+            storyId,
+            article.title,
+            aiResult.persian_title,
+            aiResult.persian_summary,
+            aiResult.primary_category,
+            JSON.stringify(entities),
+            scores.importanceScore,
+            scores.relevanceScore,
+            scores.combinedScore,
+            `Combined score ${scores.combinedScore} does not exceed strict threshold of > ${MIN_QUALIFYING_SCORE}`
+          )
+          .run();
+
+        await env.DB.prepare('INSERT INTO story_articles (story_id, article_id) VALUES (?, ?)')
+          .bind(storyId, articleId)
+          .run();
+
+        continue;
+      }
+
+      // 7. Insert Qualified Story
       await env.DB.prepare(`
         INSERT INTO stories (
           id, title, persian_title, persian_summary, primary_category, entities,
@@ -99,7 +158,7 @@ export async function runNewsPipeline(
         )
         .run();
 
-      // 7. Associate primary and supporting articles
+      // Associate primary and supporting articles
       await env.DB.prepare('INSERT INTO story_articles (story_id, article_id) VALUES (?, ?)')
         .bind(storyId, articleId)
         .run();
@@ -142,7 +201,7 @@ export async function runNewsPipeline(
         updated_at: new Date().toISOString(),
       };
 
-      // 8. Deliver simplified message to General topic
+      // 8. Deliver qualified message to General topic
       const targetChatId = (env.TELEGRAM_CHANNEL_ID || '').trim();
       const generalThreadId = await getTopicThreadId(env, 'general');
 
@@ -175,7 +234,7 @@ export async function runNewsPipeline(
   await env.DB.prepare(
     "INSERT INTO job_executions (job_type, status, summary, finished_at) VALUES (?, 'completed', ?, datetime('now'))"
   )
-    .bind('news_pipeline', `Processed ${processedStories.length} stories`)
+    .bind('news_pipeline', `Processed ${processedStories.length} stories (strictly > ${MIN_QUALIFYING_SCORE})`)
     .run();
 
   return processedStories;

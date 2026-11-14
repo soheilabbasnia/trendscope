@@ -384,18 +384,18 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Pr
         });
 
         try {
-          const stories = await runNewsPipeline(env, 5, 5.0);
+          const stories = await runNewsPipeline(env, 5);
           if (stories.length === 0) {
             await bot.sendMessage({
               chat_id: chatId,
               message_thread_id: threadId,
-              text: 'ℹ️ خبر جدیدی در این لحظه یافت نشد (تمام موارد اخیر قبلاً پردازش شده‌اند).',
+              text: 'ℹ️ خبر جدیدی با امتیاز بالای ۸.۵ در این لحظه یافت نشد.',
             });
           } else {
             await bot.sendMessage({
               chat_id: chatId,
               message_thread_id: threadId,
-              text: `✅ <b>پردازش تکمیل شد!</b> تعداد ${stories.length} خبر تازه به تاپیک General ارسال گردید.`,
+              text: `✅ <b>پردازش تکمیل شد!</b> تعداد ${stories.length} خبر برتر فناوری با امتیاز بالاتر از ۸.۵ به تاپیک General ارسال گردید.`,
             });
           }
         } catch (err: any) {
@@ -412,8 +412,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Pr
       case '/latest':
       case '/top': {
         const query = cleanCmd === '/top'
-          ? 'SELECT * FROM stories ORDER BY combined_score DESC LIMIT 5'
-          : 'SELECT * FROM stories ORDER BY created_at DESC LIMIT 5';
+          ? "SELECT * FROM stories WHERE status NOT IN ('rejected', 'filtered_non_tech', 'filtered_low_score') AND combined_score > 8.5 ORDER BY combined_score DESC LIMIT 5"
+          : "SELECT * FROM stories WHERE status NOT IN ('rejected', 'filtered_non_tech', 'filtered_low_score') AND combined_score > 8.5 ORDER BY created_at DESC LIMIT 5";
         const { results } = await env.DB.prepare(query).all<Story>();
 
         if (!results || results.length === 0) {

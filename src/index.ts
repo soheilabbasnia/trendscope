@@ -14,7 +14,7 @@ export default {
         JSON.stringify({
           ok: true,
           project: env.PROJECT_NAME || 'TrendScope',
-          version: '0.1.0',
+          version: '0.1.2',
           status: 'online',
           timezone: env.TIMEZONE,
           debug: env.DEBUG === 'true',
@@ -30,7 +30,7 @@ export default {
     if (url.pathname === '/api/trigger-test') {
       try {
         const limitParam = parseInt(url.searchParams.get('limit') || '5', 10);
-        const stories = await runNewsPipeline(env, limitParam, 5.0);
+        const stories = await runNewsPipeline(env, limitParam);
         return new Response(
           JSON.stringify({
             ok: true,

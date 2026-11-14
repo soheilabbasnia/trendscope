@@ -2,6 +2,7 @@ import { Env, Story } from '../types';
 import { runNewsPipeline } from '../news/pipeline';
 import { TelegramBot } from '../telegram/bot';
 import { getTopicThreadId } from '../telegram/topics';
+import { MIN_QUALIFYING_SCORE } from '../news/filter';
 
 export async function handleScheduledEvent(event: ScheduledEvent, env: Env): Promise<void> {
   const cron = event.cron;
@@ -20,7 +21,7 @@ export async function handleScheduledEvent(event: ScheduledEvent, env: Env): Pro
 export async function handleTwelveHourDiscovery(env: Env): Promise<void> {
   console.log('[Cron:12h] Running 12-hour discovery cycle...');
   try {
-    const stories = await runNewsPipeline(env, 5, 7.0);
+    const stories = await runNewsPipeline(env, 5);
     console.log(`[Cron:12h] Completed cycle. Alerted ${stories.length} stories.`);
   } catch (err: any) {
     console.error('[Cron:12h] Error during scheduled discovery:', err.message);
@@ -28,13 +29,13 @@ export async function handleTwelveHourDiscovery(env: Env): Promise<void> {
 }
 
 export async function generateEpisodePackage(env: Env): Promise<any> {
-  console.log('[Episode] Generating recording-day package...');
+  console.log('[Episode] Generating recording-day package with strict filter > 8.5...');
   const bot = new TelegramBot((env.TELEGRAM_BOT_TOKEN || '').trim());
   const now = new Date();
 
-  // Run bounded catch-up discovery first
+  // Run bounded catch-up discovery first (still enforces > 8.5)
   try {
-    await runNewsPipeline(env, 5, 6.0);
+    await runNewsPipeline(env, 5);
   } catch (e: any) {
     console.warn('[Episode] Catch-up check error:', e.message);
   }
@@ -72,18 +73,20 @@ export async function generateEpisodePackage(env: Env): Promise<any> {
     };
   }
 
-  // Query qualified stories in this window
+  // Query qualified stories: strictly > 8.5 and non-rejected, non-filtered
   const { results: stories } = await env.DB.prepare(`
     SELECT * FROM stories
-    WHERE created_at >= ? AND created_at < ? AND status != 'rejected'
+    WHERE created_at >= ? AND created_at < ?
+      AND status NOT IN ('rejected', 'filtered_non_tech', 'filtered_low_score')
+      AND combined_score > ?
     ORDER BY combined_score DESC
     LIMIT 25
   `)
-    .bind(windowStart, windowEnd)
+    .bind(windowStart, windowEnd, MIN_QUALIFYING_SCORE)
     .all<Story>();
 
   if (!stories || stories.length === 0) {
-    console.log('[Episode] No qualified stories found in window.');
+    console.log('[Episode] No qualified stories found in window meeting threshold > 8.5.');
     return { episode, count: 0 };
   }
 
@@ -106,10 +109,10 @@ export async function generateEpisodePackage(env: Env): Promise<any> {
   let summaryText = `
 🎬 <b>پکیج اختصاصی ضبط یوتیوب: ${title}</b>
 ⏱ <b>بازه بررسی:</b> ${isMonday ? 'جمعه تا دوشنبه' : 'دوشنبه تا جمعه'}
-📊 <b>تعداد کل کاندیدها:</b> ${stories.length} خبر
+📊 <b>کاندیدهای واجد شرایط (امتیاز بالای ۸.۵):</b> ${stories.length} خبر
 ✅ <b>تأییدشده‌های نهایی برای ویدیو:</b> ${selectedStories?.length || 0} خبر
 
-<b>برترین کاندیدهای واجد شرایط:</b>
+<b>برترین کاندیدهای فناوری:</b>
   `.trim();
 
   stories.slice(0, 15).forEach((s, idx) => {
@@ -120,7 +123,6 @@ export async function generateEpisodePackage(env: Env): Promise<any> {
   summaryText += '\n\n💡 <i>برای اضافه کردن هر خبر به لیست نهایی ضبط، در تاپیک News دکمه «✅ تأیید» را انتخاب کنید.</i>';
 
   const targetChatId = (env.TELEGRAM_CHANNEL_ID || '').trim();
-  // Deliver package report to Report topic if configured, otherwise General
   const reportThreadId = (await getTopicThreadId(env, 'report')) || (await getTopicThreadId(env, 'general'));
 
   await bot.sendMessage({

@@ -1,6 +1,8 @@
 import { FetchedArticle } from '../news/fetcher';
 
 export interface AIAnalysisResult {
+  is_technology_or_computing: boolean;
+  exclusion_reason: string | null;
   persian_title: string;
   persian_summary: string;
   primary_category: string;
@@ -15,29 +17,50 @@ export async function analyzeNewsWithGemini(
 ): Promise<AIAnalysisResult> {
   const prompt = `
 You are a senior tech news editor for a technology YouTube channel.
-Analyze the following tech news article:
+TrendScope focuses EXCLUSIVELY on technology and computing-related news.
 
+ALLOWED TOPICS:
+- Artificial Intelligence, AI Models, AI Research, LLMs
+- Computer Hardware, GPUs, CPUs, Semiconductors, Chips
+- Software, Operating Systems, Programming, Developer Tools
+- Cybersecurity, Privacy, Encryption, Hacks
+- Cloud Computing, Data Centers, Networking
+- Major Technology Companies (OpenAI, Google, Microsoft, Apple, Nvidia, Meta, Anthropic, Tesla tech, etc.)
+- Technology Industry, Startups, and Tech Business Developments
+- Computing-Related Product Announcements (phones, laptops, wearables)
+- Controversies and Public Statements Involving Tech Companies and Tech Executives
+
+EXCLUDED TOPICS (Must set "is_technology_or_computing": false):
+- Astronomy and space discoveries unrelated to computing (e.g. telescopes finding ice/asteroids/exoplanets)
+- General science discoveries (biology, medicine, paleontology, chemistry)
+- Celebrity gossip unrelated to tech
+- Sports
+- Politics without a direct technology/computing connection
+- Entertainment, movies, gaming lore without technology focus
+- Automotive news unrelated to computing, autonomous driving, or AI
+- General lifestyle content
+
+Evaluate contextual relevance carefully.
+Article to analyze:
 Headline: ${article.title}
 Source: ${article.source}
 Published At: ${article.publishedAt}
 Snippet: ${article.snippet}
 
-Produce a concise, factual Persian briefing.
-Requirements:
-1. "persian_title": Accurate, compelling Persian headline (no fake clickbait).
-2. "persian_summary": Concise Persian summary in MAXIMUM 2-3 lines explaining the core factual development.
-3. "primary_category": One main category (e.g. AI, Hardware, Software, Mobile, BigTech, Security, Cloud, Chips).
-4. "importance_score": Global tech industry significance (1.0 to 10.0).
-5. "relevance_score": Creator channel interest and audience engagement (1.0 to 10.0).
-
 Return ONLY valid JSON matching this schema:
 {
+  "is_technology_or_computing": true,
+  "exclusion_reason": null,
   "persian_title": "تیتر دقیق و جذاب به زبان فارسی",
   "persian_summary": "خلاصه کاملاً روان، دقیق و حداکثر در ۲ الی ۳ خط درباره اصل رویداد.",
   "primary_category": "AI",
-  "importance_score": 8.5,
-  "relevance_score": 8.0
+  "importance_score": 8.8,
+  "relevance_score": 8.7
 }
+
+Note:
+- If excluded, set "is_technology_or_computing": false and explain in "exclusion_reason".
+- Scores must be honest floats between 1.0 and 10.0 reflecting global tech significance.
 `;
 
   const cleanApiKey = apiKey.trim();
