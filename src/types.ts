@@ -75,7 +75,7 @@ export interface Story {
   importance_score: number;
   relevance_score: number;
   combined_score: number;
-  status: 'new' | 'alerted' | 'saved' | 'rejected' | 'selected' | 'covered';
+  status: 'new' | 'alerted' | 'saved' | 'rejected' | 'selected' | 'covered' | 'approved';
   rejection_reason?: string | null;
   primary_category?: string | null;
   entities?: string | null;

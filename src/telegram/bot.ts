@@ -1,4 +1,4 @@
-import { InlineKeyboardMarkup } from '../types';
+import type { InlineKeyboardMarkup } from '../types.ts';
 
 export class TelegramBot {
   private token: string;

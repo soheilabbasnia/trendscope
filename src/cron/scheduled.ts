@@ -120,7 +120,7 @@ export async function generateEpisodePackage(env: Env): Promise<any> {
     summaryText += `\n${idx + 1}. ${isSel ? '✅' : '▫️'} <b>${s.persian_title || s.title}</b> (امتیاز: ${s.combined_score.toFixed(1)})`;
   });
 
-  summaryText += '\n\n💡 <i>برای اضافه کردن هر خبر به لیست نهایی ضبط، در تاپیک News دکمه «✅ تأیید» را انتخاب کنید.</i>';
+  summaryText += '\n\n💡 <i>برای تأیید یا رد هر خبر، از تاپیک General یا داشبورد مدیریت اقدام فرمایید.</i>';
 
   const targetChatId = (env.TELEGRAM_CHANNEL_ID || '').trim();
   const reportThreadId = (await getTopicThreadId(env, 'report')) || (await getTopicThreadId(env, 'general'));

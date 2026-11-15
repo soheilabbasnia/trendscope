@@ -6,10 +6,10 @@ import {
   formatStoryGeneralMessage,
   formatStoryNewsMessage,
   buildGeneralKeyboard,
-  buildNewsKeyboard,
   SourceArticleRef,
 } from './formatters';
 import { getTopicThreadId, setTopicThreadId } from './topics';
+import { approveStory, rejectStory } from '../workflow/storyActions';
 
 export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Promise<void> {
   const bot = new TelegramBot((env.TELEGRAM_BOT_TOKEN || '').trim());
@@ -69,173 +69,36 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Pr
       }
 
       // ------------------------------------------
-      // ACTION: SAVE (From General Topic)
+      // ACTION: APPROVE / SAVE (General or News)
       // ------------------------------------------
-      if (action === 'save') {
-        // Prevent duplicate saves or duplicate posts in News
-        const alreadyInNews = await env.DB.prepare(
-          "SELECT id FROM telegram_deliveries WHERE story_id = ? AND delivery_type = 'news'"
-        )
-          .bind(storyId)
-          .first<{ id: number }>();
-
-        if (alreadyInNews || currentStory.status === 'saved' || currentStory.status === 'selected') {
-          await bot.answerCallbackQuery({
-            callback_query_id: cb.id,
-            text: 'این خبر قبلاً ذخیره و به تاپیک News منتقل شده است.',
-            show_alert: true,
-          });
-          return;
-        }
-
-        // Fetch source articles for this story
-        const { results: sources } = await env.DB.prepare(`
-          SELECT a.title, a.url, s.name as source
-          FROM articles a
-          JOIN story_articles sa ON a.id = sa.article_id
-          JOIN sources s ON a.source_id = s.id
-          WHERE sa.story_id = ?
-        `)
-          .bind(storyId)
-          .all<SourceArticleRef>();
-
-        // Get target News topic thread ID
-        const newsThreadId = await getTopicThreadId(env, 'news');
-        const targetChatId = (env.TELEGRAM_CHANNEL_ID || '').trim();
-
-        const newsText = formatStoryNewsMessage(currentStory, sources || []);
-        const newsKeyboard = buildNewsKeyboard(currentStory.id);
-
-        // Send to News topic
-        const sendRes = await bot.sendMessage({
-          chat_id: targetChatId,
-          message_thread_id: newsThreadId,
-          text: newsText,
-          reply_markup: newsKeyboard,
+      if (action === 'approve' || action === 'save') {
+        const result = await approveStory(env, storyId, {
+          type: 'telegram',
+          userId,
+          originalMessage: cb.message,
         });
-
-        if (!sendRes?.ok) {
-          console.error('[Save to News Failed]', sendRes);
-          await bot.answerCallbackQuery({
-            callback_query_id: cb.id,
-            text: 'خطا در ارسال به تاپیک News. لطفا با دستور /settopic news شناسه تاپیک را تنظیم کنید.',
-            show_alert: true,
-          });
-          return;
-        }
-
-        // 1. Update story status in D1
-        await env.DB.prepare("UPDATE stories SET status = 'saved', updated_at = datetime('now') WHERE id = ?")
-          .bind(storyId)
-          .run();
-
-        // 2. Store new Telegram message ID and topic ID in telegram_deliveries
-        await env.DB.prepare(`
-          INSERT INTO telegram_deliveries (story_id, chat_id, message_thread_id, message_id, delivery_type)
-          VALUES (?, ?, ?, ?, 'news')
-        `)
-          .bind(storyId, targetChatId, newsThreadId || null, sendRes.result.message_id)
-          .run();
-
-        // 3. Record positive feedback for Taste Engine
-        await recordFeedback(env.DB, storyId, userId, 'save');
-        const entities = currentStory.entities ? JSON.parse(currentStory.entities) : [];
-        await updateTastePreference(env.DB, currentStory.primary_category || '', entities, 'save');
-
-        // 4. Update the original General message to reflect its saved status without adding extra action buttons
-        await updateMessageStatusBanner(bot, cb.message, '⭐ این خبر ذخیره شد و به تاپیک News منتقل گردید', true);
-        await bot.answerCallbackQuery({ callback_query_id: cb.id, text: '⭐ خبر ذخیره شد و به تاپیک News ارسال گردید.' });
+        await bot.answerCallbackQuery({
+          callback_query_id: cb.id,
+          text: result.message,
+          show_alert: !result.success,
+        });
         return;
       }
 
       // ------------------------------------------
-      // ACTION: REJECT (From General Topic)
+      // ACTION: REJECT / REJECT_NEWS (General or News)
       // ------------------------------------------
-      if (action === 'reject') {
-        await env.DB.prepare("UPDATE stories SET status = 'rejected', updated_at = datetime('now') WHERE id = ?")
-          .bind(storyId)
-          .run();
-
-        await recordFeedback(env.DB, storyId, userId, 'reject');
-        const entities = currentStory.entities ? JSON.parse(currentStory.entities) : [];
-        await updateTastePreference(env.DB, currentStory.primary_category || '', entities, 'reject');
-
-        await updateMessageStatusBanner(bot, cb.message, '❌ این خبر رد شد', true);
-        await bot.answerCallbackQuery({ callback_query_id: cb.id, text: '❌ خبر رد شد.' });
-        return;
-      }
-
-      // ------------------------------------------
-      // ACTION: APPROVE (From News Topic)
-      // ------------------------------------------
-      if (action === 'approve') {
-        if (currentStory.status === 'selected') {
-          await bot.answerCallbackQuery({
-            callback_query_id: cb.id,
-            text: 'این خبر قبلاً برای ضبط تأیید شده است.',
-          });
-          return;
-        }
-
-        // 1. Mark story as approved (selected)
-        await env.DB.prepare("UPDATE stories SET status = 'selected', updated_at = datetime('now') WHERE id = ?")
-          .bind(storyId)
-          .run();
-
-        // 2. Add to current recording episode's selected stories
-        let episode = await env.DB.prepare("SELECT * FROM episodes WHERE status = 'draft' ORDER BY id DESC LIMIT 1").first<any>();
-        if (!episode) {
-          const now = new Date();
-          const epCode = `EP-${now.toISOString().split('T')[0]}-DRAFT`;
-          const ins = await env.DB.prepare(
-            "INSERT INTO episodes (episode_code, title, window_start, window_end, status) VALUES (?, 'پکیج در حال تکمیل', datetime('now', '-3 days'), datetime('now'), 'draft')"
-          )
-            .bind(epCode)
-            .run();
-          episode = { id: ins.meta.last_row_id };
-        }
-
-        await env.DB.prepare(`
-          INSERT INTO episode_stories (episode_id, story_id, rank_order, is_selected)
-          VALUES (?, ?, 1, 1)
-          ON CONFLICT(episode_id, story_id) DO UPDATE SET is_selected = 1
-        `)
-          .bind(episode.id, storyId)
-          .run();
-
-        // 3. Record positive feedback for Taste Engine
-        await recordFeedback(env.DB, storyId, userId, 'select');
-        const entities = currentStory.entities ? JSON.parse(currentStory.entities) : [];
-        await updateTastePreference(env.DB, currentStory.primary_category || '', entities, 'select');
-
-        // 4. Update News message to show approval
-        await updateMessageStatusBanner(bot, cb.message, '✅ تأیید شد برای ضبط ویدیوی یوتیوب', true);
-        await bot.answerCallbackQuery({ callback_query_id: cb.id, text: '✅ خبر برای ضبط ویدیو تأیید و انتخاب شد.' });
-        return;
-      }
-
-      // ------------------------------------------
-      // ACTION: REJECT_NEWS (From News Topic)
-      // ------------------------------------------
-      if (action === 'reject_news') {
-        // 1. Remove from recording selection
-        await env.DB.prepare('UPDATE episode_stories SET is_selected = 0 WHERE story_id = ?')
-          .bind(storyId)
-          .run();
-
-        // 2. Mark story as rejected
-        await env.DB.prepare("UPDATE stories SET status = 'rejected', updated_at = datetime('now') WHERE id = ?")
-          .bind(storyId)
-          .run();
-
-        // 3. Record negative preference feedback
-        await recordFeedback(env.DB, storyId, userId, 'reject');
-        const entities = currentStory.entities ? JSON.parse(currentStory.entities) : [];
-        await updateTastePreference(env.DB, currentStory.primary_category || '', entities, 'reject');
-
-        // 4. Update News message accordingly
-        await updateMessageStatusBanner(bot, cb.message, '❌ خبر از اولویت ضبط رد شد', true);
-        await bot.answerCallbackQuery({ callback_query_id: cb.id, text: '❌ خبر از اولویت ضبط رد شد.' });
+      if (action === 'reject' || action === 'reject_news') {
+        const result = await rejectStory(env, storyId, {
+          type: 'telegram',
+          userId,
+          originalMessage: cb.message,
+        });
+        await bot.answerCallbackQuery({
+          callback_query_id: cb.id,
+          text: result.message,
+          show_alert: !result.success,
+        });
         return;
       }
 

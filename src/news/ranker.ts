@@ -58,9 +58,9 @@ export async function updateTastePreference(
   db: D1Database,
   category: string,
   entities: string[],
-  action: 'select' | 'save' | 'reject' | 'cover'
+  action: 'select' | 'save' | 'reject' | 'cover' | 'approve'
 ): Promise<void> {
-  const delta = action === 'select' ? 0.2 : action === 'save' ? 0.1 : action === 'cover' ? 0.15 : -0.2;
+  const delta = (action === 'select' || action === 'approve') ? 0.2 : action === 'save' ? 0.1 : action === 'cover' ? 0.15 : -0.2;
 
   try {
     // Update category

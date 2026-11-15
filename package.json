@@ -1,12 +1,14 @@
 {
   "name": "trendscope",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Telegram-first AI tech news intelligence platform powered by Cloudflare Workers, D1, and Google Gemini",
   "main": "src/index.ts",
   "scripts": {
     "test": "node --test tests/*.test.ts",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "build:dashboard": "node scripts/build-dashboard.js",
+    "build": "node scripts/build-dashboard.js",
+    "deploy": "node scripts/build-dashboard.js && wrangler deploy",
     "typecheck": "tsc --noEmit"
   },
   "repository": {
@@ -21,8 +23,15 @@
   "homepage": "https://github.com/soheilabbasnia/TrendScope#readme",
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261114.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "typescript": "^7.0.2",
     "undici": "^8.12.4",
     "wrangler": "^4.162.0"
+  },
+  "dependencies": {
+    "lucide-react": "^1.73.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   }
 }

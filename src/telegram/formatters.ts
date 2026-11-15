@@ -1,4 +1,4 @@
-import { Story, InlineKeyboardMarkup } from '../types';
+import type { Story, InlineKeyboardMarkup } from '../types.ts';
 
 export interface SourceArticleRef {
   title: string;
@@ -41,14 +41,14 @@ export function formatStoryGeneralMessage(story: Story, sources: SourceArticleRe
 
 export function formatStoryNewsMessage(story: Story, sources: SourceArticleRef[]): string {
   const baseContent = formatStoryGeneralMessage(story, sources);
-  return `📌 <b>[خبر ذخیره‌شده — در انتظار انتخاب برای ضبط]</b>\n\n${baseContent}`;
+  return `📌 <b>[خبر تأییدشده]</b>\n\n${baseContent}`;
 }
 
 export function buildGeneralKeyboard(storyId: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
       [
-        { text: '⭐ ذخیره', callback_data: `save:${storyId}` },
+        { text: '✅ تأیید', callback_data: `approve:${storyId}` },
         { text: '❌ رد', callback_data: `reject:${storyId}` },
       ],
     ],
