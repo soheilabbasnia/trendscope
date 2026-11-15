@@ -594,7 +594,7 @@ async function mapStoriesWithSources(
       persianTitle: s.persian_title || s.title,
       englishTitle: s.title && s.title !== s.persian_title ? s.title : '',
       summary: s.persian_summary || s.why_it_matters || 'خلاصه موجود نیست.',
-      category: s.primary_category || 'هوش مصنوعی',
+      category: formatCategoryPersian(s.primary_category),
       score: s.combined_score || 0,
       publisher: sourceRefs[0]?.label || 'منبع خبر',
       publishedAt: formatRelativePersianTime(s.created_at),
@@ -632,4 +632,16 @@ function getDateGroup(dateStr: string): 'today' | 'yesterday' | 'week' {
   } catch {
     return 'today';
   }
+}
+
+function formatCategoryPersian(cat?: string | null): string {
+  if (!cat) return 'هوش مصنوعی';
+  const c = cat.toLowerCase().trim();
+  if (c === 'ai' || c.includes('intelligence')) return 'هوش مصنوعی';
+  if (c.includes('hardware') || c.includes('chip') || c.includes('gpu') || c.includes('cpu')) return 'سخت‌افزار و تراشه';
+  if (c.includes('cyber') || c.includes('security')) return 'امنیت سایبری';
+  if (c.includes('software') || c.includes('tool') || c.includes('dev')) return 'نرم‌افزار و توسعه';
+  if (c.includes('bigtech') || c.includes('business') || c.includes('industry')) return 'صنعت فناوری';
+  if (c.includes('cloud') || c.includes('datacenter')) return 'رایانش ابری';
+  return cat;
 }

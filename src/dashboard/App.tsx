@@ -90,6 +90,7 @@ export default function App() {
     pendingCount: 0,
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -253,19 +254,19 @@ export default function App() {
     }
   };
 
-  // Manual refresh handler
+  // Manual refresh handler (Telegram /refresh equivalent)
   const handleManualRefresh = async () => {
-    setIsLoading(true);
-    setSettings(prev => ({ ...prev, lastRefreshMessage: 'در حال جمع‌آوری و ارزیابی اخبار از فیدها...' }));
+    setIsRefreshing(true);
+    showToast('در حال واکشی و تحلیل ۵ خبر تازه با هوش مصنوعی (مشابه دستور /refresh تلگرام)...');
 
     try {
       const res = await apiFetch('/api/dashboard/refresh', { method: 'POST' });
       const data = (await res.json()) as any;
       if (res.ok && data.ok) {
-        showToast(`پایش انجام شد: ${data.count || 0} خبر واجد شرایط استخراج گردید.`);
+        showToast(`پایش انجام شد: ${toPersianDigits(data.count || 0)} خبر جدید واجد شرایط استخراج گردید.`);
         setSettings(prev => ({
           ...prev,
-          lastRefreshMessage: `پایش موفق: ${data.count || 0} خبر با امتیاز بالای ۸.۵ استخراج و ذخیره شد.`
+          lastRefreshMessage: `پایش موفق: ${toPersianDigits(data.count || 0)} خبر با امتیاز بالای ۸.۵ استخراج و ذخیره شد.`
         }));
         await loadDashboardData();
       } else {
@@ -276,19 +277,16 @@ export default function App() {
       setSettings(prev => ({ ...prev, lastRefreshMessage: err.message || 'خطای شبکه' }));
       showToast(err.message || 'خطای شبکه', 'error');
     } finally {
-      setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
   const generalStories = useMemo(
     () =>
       stories.filter(
-        (s) =>
-          s.status === 'general' &&
-          s.score > 8.5 &&
-          (settings.enabledCategories.length === 0 || settings.enabledCategories.includes(s.category))
+        (s) => s.status === 'general' && s.score > 8.5
       ),
-    [stories, settings.enabledCategories]
+    [stories]
   );
 
   const approvedStories = useMemo(
@@ -529,20 +527,32 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            {/* Telegram /refresh Equivalent Action Button */}
+            <button
+              onClick={handleManualRefresh}
+              disabled={isRefreshing || isLoading}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl bg-[#D4AF37] text-[#080808] font-bold text-xs hover:bg-[#e5c14a] transition-all shadow-md shadow-[#D4AF37]/15 disabled:opacity-50"
+              title="واکشی و ارزیابی ۵ خبر تازه فناوری با هوش مصنوعی (مشابه دستور /refresh ربات تلگرام)"
+            >
+              <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+              <span>{isRefreshing ? 'در حال پایش اخبار...' : 'پایش تازه (/refresh)'}</span>
+            </button>
+
+            {/* Quick Data Reload */}
             <button
               onClick={loadDashboardData}
-              disabled={isLoading}
+              disabled={isLoading || isRefreshing}
               title="بارگذاری مجدد داده‌ها"
               className="p-2 rounded-lg bg-[#111111] border border-[#D4AF37]/20 text-[#D4AF37] hover:bg-[#171717] transition-colors disabled:opacity-50"
             >
-              <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
+              <RefreshCw size={15} className={isLoading ? 'animate-spin' : ''} />
             </button>
 
             <div className="flex items-center gap-2 bg-[#111111] px-3.5 py-2 rounded-full border border-[#D4AF37]/20">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-xs text-[#F5F1E8] font-medium hidden sm:inline">
-                ربات تلگرام و ورکر آنلاین
+                آنلاین
               </span>
             </div>
           </div>
@@ -556,9 +566,11 @@ export default function App() {
                 totalCount={overview.totalCount || stories.length}
                 approvedCount={overview.approvedCount || approvedStories.length}
                 rejectedCount={rejectedCount}
-                pendingCount={overview.pendingCount || generalStories.length}
+                pendingCount={generalStories.length}
                 lastCollection={overview.lastCollectionTime || 'امروز ۰۶:۳۰'}
                 onNavigate={setActiveTab}
+                onManualRefresh={handleManualRefresh}
+                isRefreshing={isRefreshing}
               />
             )}
 
@@ -567,6 +579,8 @@ export default function App() {
                 stories={generalStories}
                 minScore={settings.minScore}
                 onDecision={handleStoryDecision}
+                onManualRefresh={handleManualRefresh}
+                isRefreshing={isRefreshing}
               />
             )}
 
@@ -600,7 +614,9 @@ function OverviewPage({
   rejectedCount,
   pendingCount,
   lastCollection,
-  onNavigate
+  onNavigate,
+  onManualRefresh,
+  isRefreshing
 }: {
   totalCount: number;
   approvedCount: number;
@@ -608,6 +624,8 @@ function OverviewPage({
   pendingCount: number;
   lastCollection?: string;
   onNavigate: (tab: any) => void;
+  onManualRefresh?: () => void;
+  isRefreshing?: boolean;
 }) {
   const metrics = [
     {
@@ -677,13 +695,19 @@ function OverviewPage({
             خزشگر هوشمند به طور پیوسته منابع برتر فناوری را رصد کرده و فقط اخبار کاملاً مرتبط با امتیاز بالای ۸.۵ را پس از تحلیل هوش مصنوعی وارد خبرخوان می‌کند.
           </p>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="bg-[#111111] border border-[#D4AF37]/15 rounded-lg px-4 py-2.5 text-center">
-            <div className="text-[11px] text-[#99958C]">وضعیت پایش</div>
-            <div className="text-xs font-bold text-emerald-400 mt-0.5">
-              خودکار و فعال
-            </div>
-          </div>
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
+          {onManualRefresh && (
+            <button
+              onClick={onManualRefresh}
+              disabled={isRefreshing}
+              className="px-4 py-2.5 rounded-lg bg-[#111111] border border-[#D4AF37]/35 text-[#D4AF37] text-xs font-bold hover:bg-[#D4AF37]/15 transition-colors flex items-center gap-2 disabled:opacity-50"
+              title="واکشی ۵ خبر تازه فناوری مشابه دستور /refresh ربات تلگرام"
+            >
+              <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+              <span>{isRefreshing ? 'در حال پایش و تحلیل AI...' : 'واکشی دستی اخبار (/refresh)'}</span>
+            </button>
+          )}
+
           <button
             onClick={() => onNavigate('general')}
             className="px-4 py-2.5 rounded-lg bg-[#D4AF37] text-[#080808] text-xs font-bold hover:bg-[#e3c04b] transition-colors"
@@ -756,11 +780,15 @@ function StatusPill({
 function GeneralFeedPage({
   stories,
   minScore,
-  onDecision
+  onDecision,
+  onManualRefresh,
+  isRefreshing
 }: {
   stories: DashboardStory[];
   minScore: number;
   onDecision: (id: string, decision: 'approved' | 'rejected') => void;
+  onManualRefresh?: () => void;
+  isRefreshing?: boolean;
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -797,6 +825,19 @@ function GeneralFeedPage({
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          {/* Manual Refresh in Feed */}
+          {onManualRefresh && (
+            <button
+              onClick={onManualRefresh}
+              disabled={isRefreshing}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#171717] border border-[#D4AF37]/30 text-[#D4AF37] text-xs font-bold hover:bg-[#D4AF37]/15 transition-colors disabled:opacity-50 shrink-0"
+              title="واکشی ۵ خبر تازه فناوری با هوش مصنوعی (مشابه دستور /refresh ربات تلگرام)"
+            >
+              <RefreshCw size={13} className={isRefreshing ? 'animate-spin' : ''} />
+              <span>{isRefreshing ? 'در حال پایش...' : 'پایش تازه (/refresh)'}</span>
+            </button>
+          )}
+
           {/* Search Input */}
           <div className="relative">
             <Search
@@ -830,10 +871,25 @@ function GeneralFeedPage({
 
       {/* Story List */}
       {filteredStories.length === 0 ? (
-        <EmptyBox
-          title="خبری در صف بررسی وجود ندارد"
-          subtitle="تمام اخبار واجد شرایط تأیید یا رد شده‌اند. با زدن دکمه پایش در تنظیمات می‌توانید اخبار جدید را خزش نمایید."
-        />
+        <div className="bg-[#111111] border border-[#D4AF37]/15 rounded-xl p-12 text-center flex flex-col items-center justify-center">
+          <div className="w-12 h-12 rounded-full bg-[#171717] border border-[#D4AF37]/20 flex items-center justify-center text-[#D4AF37] mb-4">
+            <Info size={22} />
+          </div>
+          <h4 className="text-sm font-bold text-[#F5F1E8] mb-1">خبری در صف بررسی وجود ندارد</h4>
+          <p className="text-xs text-[#99958C] max-w-sm leading-relaxed mb-5">
+            تمام اخبار واجد شرایط تأیید یا رد شده‌اند. جهت واکشی و تحلیل ۵ خبر تازه می‌توانید دکمه پایش را بزنید.
+          </p>
+          {onManualRefresh && (
+            <button
+              onClick={onManualRefresh}
+              disabled={isRefreshing}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#D4AF37] text-[#080808] font-bold text-xs hover:bg-[#e5c14a] transition-all disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+              <span>{isRefreshing ? 'در حال پایش و تحلیل AI...' : 'واکشی ۵ خبر تازه (/refresh)'}</span>
+            </button>
+          )}
+        </div>
       ) : (
         <div className="space-y-4">
           {filteredStories.map((story) => (
