@@ -139,16 +139,30 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Pr
           await bot.sendMessage({
             chat_id: chatId,
             message_thread_id: threadId,
-            text: '⚠️ فرمت نامعتبر است. نحوه استفاده:\n<code>/settopic news</code>\n<code>/settopic report</code>\n<code>/settopic general</code>',
+            text: '⚠️ فرمت نامعتبر است. نحوه استفاده:\n<code>/settopic news</code> (داخل تاپیک مربوطه)\nیا: <code>/settopic news 3</code> (با ذکر شناسه عددی)',
           });
           return;
         }
 
-        await setTopicThreadId(env.DB, target as any, threadId || null);
+        const explicitId = parts[2] ? parseInt(parts[2], 10) : undefined;
+        const targetThreadId: number | null = typeof explicitId === 'number' && !isNaN(explicitId) && explicitId > 0
+          ? explicitId
+          : (threadId ?? null);
+
+        if (target === 'news' && !targetThreadId) {
+          await bot.sendMessage({
+            chat_id: chatId,
+            message_thread_id: threadId,
+            text: '⚠️ شما در تاپیک ریشه (General) هستید. لطفاً دستور <code>/settopic news</code> را مستقیماً داخل تاپیک News اجرا کنید، یا شناسه عددی تاپیک را وارد نمایید:\n<code>/settopic news 3</code>',
+          });
+          return;
+        }
+
+        await setTopicThreadId(env.DB, target as any, targetThreadId);
         await bot.sendMessage({
           chat_id: chatId,
           message_thread_id: threadId,
-          text: `✅ تاپیک <b>${target.toUpperCase()}</b> با شناسه <code>${threadId || 'ریشه (General)'}</code> با موفقیت در دیتابیس ثبت شد.`,
+          text: `✅ تاپیک <b>${target.toUpperCase()}</b> با شناسه <code>${targetThreadId ? toPersianDigits(targetThreadId) : 'ریشه (General)'}</code> با موفقیت در دیتابیس ثبت شد.`,
         });
         break;
       }

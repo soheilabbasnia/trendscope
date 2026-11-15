@@ -1,7 +1,7 @@
 import type { Env, Story } from '../types.ts';
 import { updateTastePreference } from '../news/ranker.ts';
 import { TelegramBot } from '../telegram/bot.ts';
-import { formatStoryNewsMessage, type SourceArticleRef } from '../telegram/formatters.ts';
+import { formatStoryNewsMessage, formatStoryGeneralMessage, type SourceArticleRef } from '../telegram/formatters.ts';
 import { getTopicThreadId } from '../telegram/topics.ts';
 
 export interface ActionActor {
@@ -36,17 +36,85 @@ export async function approveStory(
     return { success: false, message: 'خبر مورد نظر در سیستم یافت نشد.' };
   }
 
-  // 2. Idempotency check: if already approved, return success
-  if (story.status === 'approved' || story.status === 'selected') {
-    return { success: true, message: 'این خبر قبلاً تأیید شده است.', story };
+  // 2. Check News topic thread ID
+  const newsThreadId = await getTopicThreadId(env, 'news');
+  if (!newsThreadId) {
+    return {
+      success: false,
+      message: 'شناسه تاپیک News در تنظیمات یافت نشد. لطفاً دستور /settopic news را داخل تاپیک News ارسال نمایید.',
+    };
   }
 
-  // 3. Update status in D1 to 'approved'
+  // 3. Idempotency check: if already approved and delivered to News, do not duplicate
+  const alreadyInNews = await env.DB.prepare(
+    "SELECT message_id FROM telegram_deliveries WHERE story_id = ? AND delivery_type = 'news'"
+  )
+    .bind(storyId)
+    .first<{ message_id: number }>();
+
+  if (alreadyInNews && (story.status === 'approved' || story.status === 'selected')) {
+    return { success: true, message: 'این خبر قبلاً تأیید و به تاپیک اخبار ارسال شده است.', story };
+  }
+
+  // 4. Fetch source articles
+  const { results: sources } = await env.DB.prepare(`
+    SELECT a.title, a.url, s.name as source
+    FROM articles a
+    JOIN story_articles sa ON a.id = sa.article_id
+    JOIN sources s ON a.source_id = s.id
+    WHERE sa.story_id = ?
+  `)
+    .bind(storyId)
+    .all<SourceArticleRef>();
+
+  const targetChatId = (env.TELEGRAM_CHANNEL_ID || '').trim();
+  const newsText = formatStoryNewsMessage(story, sources || []);
+
+  // 5. Publish to Telegram News topic
+  let newsMessageId = alreadyInNews?.message_id;
+
+  if (!alreadyInNews) {
+    let sendRes: any;
+    try {
+      sendRes = await bot.sendMessage({
+        chat_id: targetChatId,
+        message_thread_id: newsThreadId,
+        text: newsText,
+      });
+    } catch (e: any) {
+      console.error('[Action:Approve] Exception sending to News topic:', e);
+      return {
+        success: false,
+        message: `خطا در برقراری ارتباط با تلگرام: ${e.message}`,
+      };
+    }
+
+    if (!sendRes?.ok || !sendRes.result?.message_id) {
+      console.error('[Action:Approve] Failed to send to News topic:', sendRes);
+      const desc = sendRes?.description || 'خطای نامشخص از Telegram Bot API';
+      return {
+        success: false,
+        message: `ارسال خبر به تاپیک News ناموفق بود: ${desc}`,
+      };
+    }
+
+    newsMessageId = sendRes.result.message_id;
+
+    // Record delivery in telegram_deliveries
+    await env.DB.prepare(`
+      INSERT INTO telegram_deliveries (story_id, chat_id, message_thread_id, message_id, delivery_type)
+      VALUES (?, ?, ?, ?, 'news')
+    `)
+      .bind(storyId, targetChatId, newsThreadId, newsMessageId)
+      .run();
+  }
+
+  // 6. Update status in D1 to 'approved'
   await env.DB.prepare("UPDATE stories SET status = 'approved', updated_at = datetime('now') WHERE id = ?")
     .bind(storyId)
     .run();
 
-  // 4. Record positive feedback for Channel Taste Engine
+  // 7. Record positive feedback for Channel Taste Engine
   try {
     await env.DB.prepare('INSERT INTO user_feedback (story_id, user_id, action) VALUES (?, ?, ?)')
       .bind(storyId, actor.userId, 'approve')
@@ -60,54 +128,7 @@ export async function approveStory(
     console.error('[Action:Approve] Taste preference update error:', err);
   }
 
-  // 5. Publish to Telegram News topic (read-only, no action buttons)
-  const alreadyInNews = await env.DB.prepare(
-    "SELECT id FROM telegram_deliveries WHERE story_id = ? AND delivery_type = 'news'"
-  )
-    .bind(storyId)
-    .first<{ id: number }>();
-
-  if (!alreadyInNews) {
-    try {
-      // Query source articles
-      const { results: sources } = await env.DB.prepare(`
-        SELECT a.title, a.url, s.name as source
-        FROM articles a
-        JOIN story_articles sa ON a.id = sa.article_id
-        JOIN sources s ON a.source_id = s.id
-        WHERE sa.story_id = ?
-      `)
-        .bind(storyId)
-        .all<SourceArticleRef>();
-
-      const newsThreadId = await getTopicThreadId(env, 'news');
-      const targetChatId = (env.TELEGRAM_CHANNEL_ID || '').trim();
-
-      // Read-only News message format without management buttons
-      const newsText = formatStoryNewsMessage(story, sources || []);
-
-      const sendRes = await bot.sendMessage({
-        chat_id: targetChatId,
-        message_thread_id: newsThreadId,
-        text: newsText,
-      });
-
-      if (sendRes?.ok && sendRes.result?.message_id) {
-        await env.DB.prepare(`
-          INSERT INTO telegram_deliveries (story_id, chat_id, message_thread_id, message_id, delivery_type)
-          VALUES (?, ?, ?, ?, 'news')
-        `)
-          .bind(storyId, targetChatId, newsThreadId || null, sendRes.result.message_id)
-          .run();
-      } else {
-        console.warn('[Action:Approve] Failed to send to News topic:', sendRes);
-      }
-    } catch (e: any) {
-      console.error('[Action:Approve] Error sending to News topic:', e.message);
-    }
-  }
-
-  // 6. Update the original General Telegram message to reflect approval without extra buttons
+  // 8. Update the original General Telegram message: remove buttons and show approved status
   try {
     const generalDelivery = await env.DB.prepare(`
       SELECT chat_id, message_id FROM telegram_deliveries
@@ -117,16 +138,17 @@ export async function approveStory(
       .bind(storyId)
       .first<{ chat_id: string; message_id: number }>();
 
-    const targetChat = actor.originalMessage?.chat?.id || generalDelivery?.chat_id;
+    const targetChat = actor.originalMessage?.chat?.id || generalDelivery?.chat_id || targetChatId;
     const targetMsgId = actor.originalMessage?.message_id || generalDelivery?.message_id;
 
     if (targetChat && targetMsgId) {
       const origText = actor.originalMessage?.text;
-      const baseText = origText || story.persian_title || story.title;
+      const baseText = origText || formatStoryGeneralMessage(story, sources || []);
+      const cleanBaseText = baseText.replace(/\n\n<i>\[.*\]<\/i>$/g, '');
       await bot.editMessageText({
         chat_id: targetChat,
         message_id: targetMsgId,
-        text: `${baseText}\n\n<i>[✅ این خبر تأیید شد و به تاپیک اخبار ارسال گردید]</i>`,
+        text: `${cleanBaseText}\n\n<i>[✅ این خبر تأیید شد و به تاپیک اخبار ارسال گردید]</i>`,
         reply_markup: { inline_keyboard: [] },
       });
     }

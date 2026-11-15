@@ -4,7 +4,19 @@ import { approveStory, rejectStory } from '../src/workflow/storyActions.ts';
 import { buildGeneralKeyboard, formatStoryGeneralMessage, formatStoryNewsMessage } from '../src/telegram/formatters.ts';
 import { decodeHtmlEntities } from '../src/utils/text.ts';
 
-// Mock D1 Database
+// Mock D1 Database & Telegram Fetch
+const originalFetch = globalThis.fetch;
+globalThis.fetch = (async (input: any, init?: any) => {
+  const url = String(input);
+  if (url.includes('api.telegram.org')) {
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 123 } }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  return originalFetch(input, init);
+}) as any;
+
 class MockD1 {
   stories: Map<string, any> = new Map();
   feedback: any[] = [];
@@ -39,17 +51,17 @@ class MockD1 {
           const s = self.stories.get(boundParams[0]);
           return (s ? { ...s } : null) as T;
         }
-        if (query.includes('SELECT id FROM telegram_deliveries')) {
+        if (query.includes('SELECT message_id FROM telegram_deliveries') || query.includes('SELECT id FROM telegram_deliveries')) {
           const match = self.deliveries.find(
             (d) => d.story_id === boundParams[0] && d.delivery_type === 'news'
           );
-          return (match ? { id: 1 } : null) as T;
+          return (match ? { message_id: 123, id: 1 } : null) as T;
         }
         if (query.includes('SELECT chat_id, message_id FROM telegram_deliveries')) {
           return null as T;
         }
         if (query.includes('SELECT value FROM settings')) {
-          return null as T;
+          return { value: '2' } as T;
         }
         return null as T;
       },
@@ -88,7 +100,7 @@ class MockD1 {
           self.deliveries.push({
             story_id: boundParams[0],
             chat_id: boundParams[1],
-            delivery_type: boundParams[4],
+            delivery_type: query.includes("'news'") ? 'news' : (boundParams[4] || 'general'),
           });
         }
         return { meta: { changes: 1 } };

@@ -61,8 +61,14 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
       return new Response('Font not found', { status: 404 });
     }
 
-    // Serve Owl Logo
-    if (url.pathname === '/api/logo' || url.pathname === '/logo.jpeg' || url.pathname === '/logo.png') {
+    // Serve Owl Logo / Favicon
+    if (
+      url.pathname === '/api/logo' ||
+      url.pathname === '/logo.jpeg' ||
+      url.pathname === '/logo.png' ||
+      url.pathname === '/favicon.ico' ||
+      url.pathname === '/favicon.png'
+    ) {
       const binaryString = atob(LOGO_BASE64);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
@@ -492,7 +498,7 @@ function addSecurityHeaders(response: Response): Response {
 
 function isOriginAllowed(request: Request): boolean {
   const url = new URL(request.url);
-  if (url.pathname === '/api/telegram/webhook') return true;
+  if (url.pathname === '/webhook/telegram' || url.pathname === '/api/telegram/webhook') return true;
   const origin = request.headers.get('Origin');
   if (!origin) return true;
   try {
