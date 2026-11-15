@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { toPersianDigits } from '../utils/persian';
 import {
   LayoutDashboard,
   Rss,
@@ -279,32 +280,15 @@ export default function App() {
     }
   };
 
-  const navItems = [
-    { id: 'overview' as const, label: 'پیش‌خوان', icon: LayoutDashboard, badge: 0 },
-    {
-      id: 'general' as const,
-      label: 'خبرخوان',
-      icon: Rss,
-      badge: stories.filter((s) => s.status === 'general' && s.score > settings.minScore).length
-    },
-    {
-      id: 'news' as const,
-      label: 'خبرها',
-      icon: Newspaper,
-      badge: stories.filter((s) => s.status === 'approved').length
-    },
-    { id: 'settings' as const, label: 'تنظیمات', icon: Settings, badge: 0 }
-  ];
-
   const generalStories = useMemo(
     () =>
       stories.filter(
         (s) =>
           s.status === 'general' &&
-          s.score > settings.minScore &&
+          s.score > 8.5 &&
           (settings.enabledCategories.length === 0 || settings.enabledCategories.includes(s.category))
       ),
-    [stories, settings.minScore, settings.enabledCategories]
+    [stories, settings.enabledCategories]
   );
 
   const approvedStories = useMemo(
@@ -316,6 +300,23 @@ export default function App() {
     () => overview.rejectedCount || stories.filter((s) => s.status === 'rejected').length,
     [stories, overview.rejectedCount]
   );
+
+  const navItems = [
+    { id: 'overview' as const, label: 'پیش‌خوان', icon: LayoutDashboard, badge: 0 },
+    {
+      id: 'general' as const,
+      label: 'خبرخوان',
+      icon: Rss,
+      badge: generalStories.length
+    },
+    {
+      id: 'news' as const,
+      label: 'خبرها',
+      icon: Newspaper,
+      badge: approvedStories.length
+    },
+    { id: 'settings' as const, label: 'تنظیمات', icon: Settings, badge: 0 }
+  ];
 
   const handleNavClick = (id: typeof activeTab) => {
     setActiveTab(id);
@@ -467,13 +468,13 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   {typeof item.badge === 'number' && item.badge > 0 && (
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-mono ${
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                         isActive
                           ? 'bg-[#D4AF37]/15 text-[#D4AF37] border border-[#D4AF37]/30'
                           : 'bg-[#080808] text-[#99958C] border border-[#D4AF37]/10'
                       }`}
                     >
-                      {item.badge}
+                      {toPersianDigits(item.badge)}
                     </span>
                   )}
                   {isActive && (
@@ -611,19 +612,19 @@ function OverviewPage({
   const metrics = [
     {
       label: 'کل اخبار ثبت‌شده در دیتابیس',
-      value: totalCount,
-      sub: `شامل ${pendingCount} خبر در صف بررسی`,
+      value: toPersianDigits(totalCount),
+      sub: `شامل ${toPersianDigits(pendingCount)} خبر در صف بررسی`,
       icon: Rss
     },
     {
       label: 'خبرهای تأیید شده',
-      value: approvedCount,
+      value: toPersianDigits(approvedCount),
       sub: 'منتشر شده در تاپیک اخبار (News)',
       icon: CheckCircle2
     },
     {
       label: 'خبرهای رد شده',
-      value: rejectedCount,
+      value: toPersianDigits(rejectedCount),
       sub: 'خارج شده از چرخه انتشار',
       icon: XCircle
     },
@@ -687,7 +688,7 @@ function OverviewPage({
             onClick={() => onNavigate('general')}
             className="px-4 py-2.5 rounded-lg bg-[#D4AF37] text-[#080808] text-xs font-bold hover:bg-[#e3c04b] transition-colors"
           >
-            مشاهده صف خبرخوان ({pendingCount})
+            مشاهده صف خبرخوان ({toPersianDigits(pendingCount)})
           </button>
         </div>
       </div>
@@ -787,11 +788,11 @@ function GeneralFeedPage({
       {/* Info Banner & Filter Bar */}
       <div className="bg-[#111111] border border-[#D4AF37]/15 rounded-xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
         <div className="flex items-center gap-2.5 text-xs text-[#99958C]">
-          <span className="px-2.5 py-1 rounded bg-[#171717] border border-[#D4AF37]/25 text-[#D4AF37] font-mono font-bold">
-            &gt; {minScore}
+          <span className="px-2.5 py-1 rounded bg-[#171717] border border-[#D4AF37]/25 text-[#D4AF37] font-bold">
+            &gt; {toPersianDigits(minScore)}
           </span>
           <span>
-            فقط اخبار فناوری و رایانش با امتیاز بالاتر از {minScore} نمایش داده می‌شوند.
+            فقط اخبار فناوری و رایانش با امتیاز بالاتر از {toPersianDigits(minScore)} نمایش داده می‌شوند.
           </span>
         </div>
 
@@ -817,7 +818,7 @@ function GeneralFeedPage({
             onChange={(e) => setSelectedCategory(e.target.value)}
             className="bg-[#171717] border border-[#D4AF37]/20 rounded-lg px-3 py-2 text-xs text-[#F5F1E8] focus:outline-none focus:border-[#D4AF37]"
           >
-            <option value="all">همه دسته‌بندی‌ها ({stories.length})</option>
+            <option value="all">همه دسته‌بندی‌ها ({toPersianDigits(stories.length)})</option>
             {categories.map((cat) => (
               <option key={cat} value={cat}>
                 {cat}
@@ -892,7 +893,7 @@ function ApprovedNewsPage({
         <div className="flex items-center gap-2 text-xs text-[#99958C]">
           <CheckCircle2 size={16} className="text-[#D4AF37]" />
           <span>
-            بایگانی خبرهای تایید شده ({stories.length} خبر)
+            بایگانی خبرهای تایید شده ({toPersianDigits(stories.length)} خبر)
           </span>
         </div>
 
@@ -1140,9 +1141,9 @@ function StoryCard({
       {/* Top Meta Row */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2.5">
-          <span className="px-2.5 py-1 rounded-md bg-[#111111] border border-[#D4AF37]/35 text-[#D4AF37] font-mono font-bold text-sm">
-            {story.score ? story.score.toFixed(1) : '0.0'}
-            <span className="text-[11px] text-[#99958C] font-normal"> / 10</span>
+          <span className="px-2.5 py-1 rounded-md bg-[#111111] border border-[#D4AF37]/35 text-[#D4AF37] font-bold text-sm">
+            {toPersianDigits(story.score ? story.score.toFixed(1) : '۰.۰')}
+            <span className="text-[11px] text-[#99958C] font-normal"> / ۱۰</span>
           </span>
           <span className="px-2.5 py-1 rounded-md bg-[#111111] border border-[#D4AF37]/10 text-xs text-[#99958C]">
             {story.category}

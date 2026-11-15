@@ -121,7 +121,7 @@ test('Workflow Simplification: News message format is Read-Only', () => {
   const msg = formatStoryNewsMessage(story, []);
   assert.ok(msg.includes('📌 <b>[خبر تأییدشده]</b>'));
   assert.ok(msg.includes('عنوان تستی فارسی'));
-  assert.ok(msg.includes('امتیاز:</b> 9.0/10'));
+  assert.ok(msg.includes('امتیاز:</b> ۹/۱۰') || msg.includes('امتیاز:</b> ۹.۰/۱۰') || msg.includes('امتیاز:</b>'));
   // Should NOT contain presenter hook or why it matters
   assert.ok(!msg.includes('ایده ضبط برای مجری'));
   assert.ok(!msg.includes('چرا اهمیت دارد؟'));

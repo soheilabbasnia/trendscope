@@ -1,4 +1,5 @@
 import type { Story, InlineKeyboardMarkup } from '../types.ts';
+import { toPersianDigits } from '../utils/persian.ts';
 
 export interface SourceArticleRef {
   title: string;
@@ -31,7 +32,7 @@ export function formatStoryGeneralMessage(story: Story, sources: SourceArticleRe
     text += `\n<i>${escapeHtml(englishTitle)}</i>`;
   }
   text += `\n\n📝 <b>خلاصه:</b>\n${escapeHtml(summary)}`;
-  text += `\n\n📊 <b>امتیاز:</b> ${score}/10 | 🎯 <b>دسته‌بندی:</b> ${escapeHtml(category)}`;
+  text += `\n\n📊 <b>امتیاز:</b> ${toPersianDigits(score)}/۱۰ | 🎯 <b>دسته‌بندی:</b> ${escapeHtml(category)}`;
   if (sourcesHtml) {
     text += sourcesHtml;
   }

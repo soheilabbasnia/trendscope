@@ -10,6 +10,7 @@ import {
 } from './formatters';
 import { getTopicThreadId, setTopicThreadId } from './topics';
 import { approveStory, rejectStory } from '../workflow/storyActions';
+import { toPersianDigits } from '../utils/persian.ts';
 
 export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Promise<void> {
   const bot = new TelegramBot((env.TELEGRAM_BOT_TOKEN || '').trim());
@@ -175,18 +176,15 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Pr
         const welcome = `
 🤖 <b>به ربات هوشمند TrendScope خوش آمدید!</b>
 
-👤 <b>شناسه شما:</b> <code>${userId || 'کانال'}</code>
+👤 <b>شناسه شما:</b> <code>${toPersianDigits(userId) || 'کانال'}</code>
 🔐 <b>وضعیت دسترسی:</b> ${userId === adminId ? '✅ مدیر تاییدشده (Admin)' : 'عضو مهمان'}
 
 دستورات در دسترس:
-/status - وضعیت پلتفرم و دیتابیس
-/refresh - واکشی و انتشار ۵ خبر جدید در تاپیک General
+/status - وضعیت پلتفرم، پایگاه داده و هوش مصنوعی
+/refresh - واکشی و تحلیل ۵ خبر تازه فناوری
 /topics - مشاهده شناسه‌های تاپیک‌های فروم
 /settopic - تنظیم شناسه تاپیک‌ها
-/selected - خبرهای تأییدشده برای ضبط
-/saved - خبرهای ذخیره‌شده
-/episode - پکیج ضبط جاری
-/help - راهنمای سیستم
+/help - راهنمای سیستم و چرخه کار
         `.trim();
         await bot.sendMessage({ chat_id: chatId, message_thread_id: threadId, text: welcome });
         break;
@@ -194,20 +192,20 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Pr
 
       case '/help': {
         const help = `
-📖 <b>راهنمای جریان کاری TrendScope:</b>
+📖 <b>راهنمای چرخه کار یکپارچه TrendScope:</b>
 
-1️⃣ <b>تاپیک General:</b> اخبار خلاصه به صورت خودکار یا با <code>/refresh</code> اینجا منتشر می‌شوند.
-   دکمه‌ها: <b>⭐ ذخیره</b> (ارسال به تاپیک News) | <b>❌ رد</b>
+1️⃣ <b>تاپیک General (صف بررسی):</b> اخبار مهم فناوری با امتیاز بالاتر از ۸.۵ منتشر می‌شوند.
+   دکمه‌ها: <b>✅ تأیید</b> (انتقال به News و ثبت در داشبورد) | <b>❌ رد</b>
 
-2️⃣ <b>تاپیک News:</b> خبرهای ذخیره‌شده از General به اینجا می‌آیند.
-   دکمه‌ها: <b>✅ تأیید</b> (انتخاب قطعی برای ضبط ویدیو) | <b>❌ رد</b>
+2️⃣ <b>تاپیک News (خبرها):</b> آرشیو فقط‌خواندنی خبرهای تأییدشده.
+   <i>(جهت حذف یا اصلاح اضطراری خبرها، از پنل مدیریت وب استفاده نمایید)</i>
 
-3️⃣ <b>دستورات تکمیلی:</b>
-   ▫️ <code>/topics</code> - بررسی تاپیک‌های فروم
-   ▫️ <code>/settopic news</code> - تنظیم این تاپیک به عنوان تاپیک اخبار
-   ▫️ <code>/status</code> - سلامت سیستم و دیتابیس
-   ▫️ <code>/refresh</code> - واکشی دستی ۵ خبر جدید
-   ▫️ <code>/selected</code> - لیست خبرهای تأییدشده برای ضبط
+3️⃣ <b>داشبورد وب:</b>
+   🔗 پایش بلادرنگ، فیلتر دسته‌بندی و مدیریت اخبار در پنل مدیریتی.
+
+▫️ <code>/status</code> - وضعیت سلامت سیستم و دیتابیس
+▫️ <code>/refresh</code> - واکشی دستی ۵ خبر جدید
+▫️ <code>/topics</code> - بررسی تنظیمات تاپیک‌های فروم
         `.trim();
         await bot.sendMessage({ chat_id: chatId, message_thread_id: threadId, text: help });
         break;
@@ -216,6 +214,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Pr
       case '/status': {
         const dbCheck = await env.DB.prepare('SELECT count(*) as cnt FROM stories').first<{ cnt: number }>();
         const sourcesCount = await env.DB.prepare('SELECT count(*) as cnt FROM sources WHERE enabled = 1').first<{ cnt: number }>();
+        const pendingCount = await env.DB.prepare("SELECT count(*) as cnt FROM stories WHERE status IN ('new', 'alerted', 'general') AND combined_score > 8.5").first<{ cnt: number }>();
+        const approvedCount = await env.DB.prepare("SELECT count(*) as cnt FROM stories WHERE status IN ('approved', 'selected')").first<{ cnt: number }>();
         const lastJob = await env.DB.prepare('SELECT * FROM job_executions ORDER BY id DESC LIMIT 1').first<any>();
         const newsThreadId = await getTopicThreadId(env, 'news');
 
@@ -223,11 +223,13 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env): Pr
 📊 <b>وضعیت سیستم TrendScope:</b>
 
 🟢 <b>Cloudflare Worker:</b> فعال و آنلاین
-💾 <b>دیتابیس D1:</b> متصل (${dbCheck?.cnt || 0} خبر ثبت‌شده)
-📡 <b>منابع فعال:</b> ${sourcesCount?.cnt || 0} منبع
+💾 <b>دیتابیس D1:</b> متصل (${toPersianDigits(dbCheck?.cnt || 0)} خبر ثبت‌شده)
+📥 <b>صف خبرخوان (Pending):</b> ${toPersianDigits(pendingCount?.cnt || 0)} خبر
+✅ <b>خبرهای تأییدشده:</b> ${toPersianDigits(approvedCount?.cnt || 0)} خبر
+📡 <b>منابع فعال:</b> ${toPersianDigits(sourcesCount?.cnt || 0)} منبع
 🧠 <b>مدل هوش مصنوعی:</b> Google Gemini 3.5 Flash Lite
 ⏱ <b>منطقه زمانی:</b> ${env.TIMEZONE}
-📌 <b>تاپیک News:</b> ${newsThreadId ? `شناسه ${newsThreadId}` : 'هنوز ست نشده (با /settopic news)'}
+📌 <b>تاپیک News:</b> ${newsThreadId ? `شناسه ${toPersianDigits(newsThreadId)}` : 'تنظیم نشده (با /settopic news)'}
 🔄 <b>آخرین پردازش:</b> ${lastJob ? `${lastJob.job_type} (${lastJob.status})` : 'هنوز اجرا نشده'}
         `.trim();
         await bot.sendMessage({ chat_id: chatId, message_thread_id: threadId, text: statusText });

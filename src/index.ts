@@ -7,11 +7,35 @@ import { approveStory, rejectStory } from './workflow/storyActions';
 import { DASHBOARD_HTML } from './dashboard/bundledHtml';
 import { LOGO_BASE64 } from './assets/logoData';
 import { FONTS_DATA } from './assets/fontsData';
+import { toPersianDigits } from './utils/persian';
+
+// In-memory rate limiting for login attempts
+const loginAttempts = new Map<string, { count: number; blockedUntil: number }>();
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    // Security check: Origin validation on POST requests
+    if (request.method === 'POST' && !isOriginAllowed(request)) {
+      return addSecurityHeaders(
+        new Response(JSON.stringify({ ok: false, error: 'درخواست غیرمجاز (CSRF)' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+    }
+
+    const response = await handleRequest(request, env, ctx, url);
+    return addSecurityHeaders(response);
+  },
+
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(handleScheduledEvent(event, env));
+  },
+};
+
+async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
     // ==========================================
     // 1. Static Assets & Frontend Dashboard
     // ==========================================
@@ -99,7 +123,10 @@ export default {
         const adminId = (env.TELEGRAM_ADMIN_ID || '').trim();
         const secret = (env.TELEGRAM_WEBHOOK_SECRET || '').trim();
 
-        if (!passcode || (passcode !== adminId && passcode !== secret)) {
+        const isMatchAdmin = !!(adminId && timingSafeEqualStrings(passcode, adminId));
+        const isMatchSecret = !!(secret && timingSafeEqualStrings(passcode, secret));
+
+        if (!passcode || (!isMatchAdmin && !isMatchSecret)) {
           return new Response(
             JSON.stringify({ ok: false, error: 'رمز عبور یا شناسه مدیریتی نادرست است.' }),
             { status: 401, headers: { 'Content-Type': 'application/json' } }
@@ -439,12 +466,56 @@ export default {
     }
 
     return new Response('Not Found', { status: 404 });
-  },
+}
 
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(handleScheduledEvent(event, env));
-  },
-};
+// ==========================================
+// Security & Helper Functions
+// ==========================================
+
+function addSecurityHeaders(response: Response): Response {
+  const newHeaders = new Headers(response.headers);
+  newHeaders.set('X-Content-Type-Options', 'nosniff');
+  newHeaders.set('X-Frame-Options', 'SAMEORIGIN');
+  newHeaders.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  newHeaders.set('Permissions-Policy', 'geolocation=(), camera=(), microphone=()');
+  newHeaders.set(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: blob:; connect-src 'self' https:;"
+  );
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: newHeaders,
+  });
+}
+
+function isOriginAllowed(request: Request): boolean {
+  const url = new URL(request.url);
+  if (url.pathname === '/api/telegram/webhook') return true;
+  const origin = request.headers.get('Origin');
+  if (!origin) return true;
+  try {
+    const originHost = new URL(origin).host;
+    return originHost === url.host || originHost === 'localhost' || originHost.endsWith('.workers.dev');
+  } catch {
+    return false;
+  }
+}
+
+function timingSafeEqualStrings(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    let diff = 1;
+    for (let i = 0; i < a.length; i++) {
+      diff |= a.charCodeAt(i) ^ b.charCodeAt(i % b.length || 0);
+    }
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
 
 // ==========================================
 // Helper Functions
@@ -542,10 +613,10 @@ function formatRelativePersianTime(dateStr: string): string {
     const diffMs = Date.now() - new Date(dateStr).getTime();
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     if (diffHours < 1) return 'چند لحظه پیش';
-    if (diffHours < 24) return `${diffHours} ساعت پیش`;
+    if (diffHours < 24) return `${toPersianDigits(diffHours)} ساعت پیش`;
     const diffDays = Math.floor(diffHours / 24);
     if (diffDays === 1) return 'دیروز';
-    return `${diffDays} روز پیش`;
+    return `${toPersianDigits(diffDays)} روز پیش`;
   } catch {
     return 'به‌تازگی';
   }
