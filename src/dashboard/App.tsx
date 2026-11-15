@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { toPersianDigits } from '../utils/persian';
+import { decodeHtmlEntities } from '../utils/text';
 import {
   LayoutDashboard,
   Rss,
@@ -1216,7 +1217,7 @@ function StoryCard({
       {/* Headlines & Persian Summary */}
       <div className="space-y-2.5 mb-5">
         <h3 className="text-base sm:text-lg font-bold text-[#F5F1E8] leading-relaxed font-heading">
-          {story.persianTitle}
+          {decodeHtmlEntities(story.persianTitle)}
         </h3>
 
         {story.englishTitle && (
@@ -1224,12 +1225,12 @@ function StoryCard({
             dir="ltr"
             className="text-xs sm:text-sm text-[#99958C] font-mono text-left border-l-2 border-[#D4AF37]/35 pl-3 py-0.5"
           >
-            {story.englishTitle}
+            {decodeHtmlEntities(story.englishTitle)}
           </p>
         )}
 
         <p className="text-xs sm:text-sm text-[#F5F1E8]/85 leading-7 pt-1 font-body">
-          {story.summary}
+          {decodeHtmlEntities(story.summary)}
         </p>
       </div>
 

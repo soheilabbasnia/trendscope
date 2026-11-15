@@ -8,6 +8,7 @@ import { DASHBOARD_HTML } from './dashboard/bundledHtml';
 import { LOGO_BASE64 } from './assets/logoData';
 import { FONTS_DATA } from './assets/fontsData';
 import { toPersianDigits } from './utils/persian';
+import { decodeHtmlEntities } from './utils/text';
 
 // In-memory rate limiting for login attempts
 const loginAttempts = new Map<string, { count: number; blockedUntil: number }>();
@@ -591,9 +592,9 @@ async function mapStoriesWithSources(
 
     mapped.push({
       id: s.id,
-      persianTitle: s.persian_title || s.title,
-      englishTitle: s.title && s.title !== s.persian_title ? s.title : '',
-      summary: s.persian_summary || s.why_it_matters || 'خلاصه موجود نیست.',
+      persianTitle: decodeHtmlEntities(s.persian_title || s.title),
+      englishTitle: s.title && s.title !== s.persian_title ? decodeHtmlEntities(s.title) : '',
+      summary: decodeHtmlEntities(s.persian_summary || s.why_it_matters || 'خلاصه موجود نیست.'),
       category: formatCategoryPersian(s.primary_category),
       score: s.combined_score || 0,
       publisher: sourceRefs[0]?.label || 'منبع خبر',

@@ -1,5 +1,6 @@
 import type { Story, InlineKeyboardMarkup } from '../types.ts';
 import { toPersianDigits } from '../utils/persian.ts';
+import { decodeHtmlEntities } from '../utils/text.ts';
 
 export interface SourceArticleRef {
   title: string;
@@ -8,9 +9,9 @@ export interface SourceArticleRef {
 }
 
 export function formatStoryGeneralMessage(story: Story, sources: SourceArticleRef[]): string {
-  const persianTitle = story.persian_title || story.title;
-  const englishTitle = story.title && story.title !== persianTitle ? story.title : '';
-  const summary = story.persian_summary || 'خلاصه در دسترس نیست.';
+  const persianTitle = decodeHtmlEntities(story.persian_title || story.title);
+  const englishTitle = story.title && story.title !== (story.persian_title || '') ? decodeHtmlEntities(story.title) : '';
+  const summary = decodeHtmlEntities(story.persian_summary || 'خلاصه در دسترس نیست.');
   const score = story.combined_score ? story.combined_score.toFixed(1) : '0.0';
   const category = story.primary_category || 'عمومی';
 

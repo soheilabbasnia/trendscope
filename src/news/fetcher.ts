@@ -1,3 +1,5 @@
+import { decodeHtmlEntities } from '../utils/text';
+
 export interface FetchedArticle {
   title: string;
   url: string;
@@ -101,13 +103,5 @@ function parseRssOrAtom(xml: string, sourceName: string, maxItems: number): Fetc
 }
 
 function cleanXmlText(text: string): string {
-  return text
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#039;/g, "'")
-    .trim();
+  return decodeHtmlEntities(text);
 }

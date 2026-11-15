@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { approveStory, rejectStory } from '../src/workflow/storyActions.ts';
 import { buildGeneralKeyboard, formatStoryGeneralMessage, formatStoryNewsMessage } from '../src/telegram/formatters.ts';
+import { decodeHtmlEntities } from '../src/utils/text.ts';
 
 // Mock D1 Database
 class MockD1 {
@@ -182,4 +183,13 @@ test('Story Actions: Idempotent operations return success without re-processing'
   const secondResult = await approveStory(mockEnv, 'story-1', { type: 'dashboard', userId: 'admin' });
   assert.equal(secondResult.success, true);
   assert.equal(mockDb.feedback.length, feedbackCount1); // No duplicate feedback inserted
+});
+
+test('HTML Entities: decodeHtmlEntities cleanly converts decimal, hex, and named entities', () => {
+  assert.equal(decodeHtmlEntities('Where was Nvidia&#8217;s security team?'), 'Where was Nvidia’s security team?');
+  assert.equal(decodeHtmlEntities('didn&#8217;t make it'), 'didn’t make it');
+  assert.equal(decodeHtmlEntities('can&#8217;t trust AI'), 'can’t trust AI');
+  assert.equal(decodeHtmlEntities('&quot;AI &amp; Tech&quot; &#8211; &lt;Cloud&gt;'), '"AI & Tech" – <Cloud>');
+  assert.equal(decodeHtmlEntities('&#8220;quoted&#8221; and &#8216;single&#8217;'), '“quoted” and ‘single’');
+  assert.equal(decodeHtmlEntities('&#x2019;hex entity&#x2019;'), '’hex entity’');
 });
