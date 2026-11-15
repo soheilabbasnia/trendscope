@@ -209,6 +209,29 @@ export async function rejectStory(
     console.error('[Action:Reject] Error updating original General message:', err);
   }
 
+  // 6. If previously delivered to News topic, remove it from News topic
+  try {
+    const newsDelivery = await env.DB.prepare(`
+      SELECT chat_id, message_id FROM telegram_deliveries
+      WHERE story_id = ? AND delivery_type = 'news'
+      ORDER BY id DESC LIMIT 1
+    `)
+      .bind(storyId)
+      .first<{ chat_id: string; message_id: number }>();
+
+    if (newsDelivery?.chat_id && newsDelivery?.message_id) {
+      await bot.deleteMessage({
+        chat_id: newsDelivery.chat_id,
+        message_id: newsDelivery.message_id,
+      });
+      await env.DB.prepare("DELETE FROM telegram_deliveries WHERE story_id = ? AND delivery_type = 'news'")
+        .bind(storyId)
+        .run();
+    }
+  } catch (err) {
+    console.warn('[Action:Reject] Could not remove message from News topic:', err);
+  }
+
   story.status = 'rejected';
   return { success: true, message: 'خبر رد شد و از چرخه بررسی کنار گذاشته شد.', story };
 }

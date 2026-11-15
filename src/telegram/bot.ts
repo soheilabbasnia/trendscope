@@ -62,6 +62,15 @@ export class TelegramBot {
     return await res.json();
   }
 
+  async deleteMessage(params: { chat_id: number | string; message_id: number }): Promise<any> {
+    const res = await fetch(`${this.baseUrl}/deleteMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return await res.json();
+  }
+
   async setWebhook(url: string, secretToken: string): Promise<any> {
     const res = await fetch(`${this.baseUrl}/setWebhook`, {
       method: 'POST',

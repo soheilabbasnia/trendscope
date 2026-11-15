@@ -5,7 +5,8 @@ import { runNewsPipeline } from './news/pipeline';
 import { handleScheduledEvent, generateEpisodePackage } from './cron/scheduled';
 import { approveStory, rejectStory } from './workflow/storyActions';
 import { DASHBOARD_HTML } from './dashboard/bundledHtml';
-import { LOGO_BASE64 } from './dashboard/logoData';
+import { LOGO_BASE64 } from './assets/logoData';
+import { FONTS_DATA } from './assets/fontsData';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -14,6 +15,26 @@ export default {
     // ==========================================
     // 1. Static Assets & Frontend Dashboard
     // ==========================================
+
+    // Serve Fonts (Anjoman & Ravi)
+    if (url.pathname.startsWith('/api/fonts/')) {
+      const fontName = url.pathname.replace('/api/fonts/', '').trim();
+      const fontB64 = FONTS_DATA[fontName];
+      if (fontB64) {
+        const binaryString = atob(fontB64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return new Response(bytes, {
+          headers: {
+            'Content-Type': 'font/woff2',
+            'Cache-Control': 'public, max-age=31536000, immutable',
+          },
+        });
+      }
+      return new Response('Font not found', { status: 404 });
+    }
 
     // Serve Owl Logo
     if (url.pathname === '/api/logo' || url.pathname === '/logo.jpeg' || url.pathname === '/logo.png') {

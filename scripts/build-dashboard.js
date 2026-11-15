@@ -27,19 +27,69 @@ async function bundleDashboard() {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TrendScope | سامانه هوشمند پایش و پالایش اخبار فناوری</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Ravi', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            heading: ['Anjoman', 'Ravi', 'sans-serif'],
+          }
+        }
+      }
+    };
+  </script>
   <style>
+    @font-face {
+      font-family: 'Anjoman';
+      src: url('/api/fonts/Anjoman-Bold.woff2') format('woff2');
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Anjoman';
+      src: url('/api/fonts/Anjoman-SemiBold.woff2') format('woff2');
+      font-weight: 600;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Ravi';
+      src: url('/api/fonts/Ravi-Regular.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Ravi';
+      src: url('/api/fonts/Ravi-Medium.woff2') format('woff2');
+      font-weight: 500;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Ravi';
+      src: url('/api/fonts/Ravi-Bold.woff2') format('woff2');
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+
     body, html {
       margin: 0;
       padding: 0;
-      font-family: 'Vazirmatn', sans-serif;
+      font-family: 'Ravi', -apple-system, BlinkMacSystemFont, sans-serif;
       background-color: #080808;
       color: #F5F1E8;
       -webkit-font-smoothing: antialiased;
     }
+
+    h1, h2, h3, h4, h5, h6, .font-heading {
+      font-family: 'Anjoman', 'Ravi', sans-serif !important;
+    }
+
     .scrollbar-thin::-webkit-scrollbar {
       width: 6px;
       height: 6px;
@@ -56,7 +106,7 @@ async function bundleDashboard() {
     }
   </style>
 </head>
-<body class="bg-[#080808] text-[#F5F1E8] min-h-screen">
+<body class="bg-[#080808] text-[#F5F1E8] min-h-screen font-sans">
   <div id="root"></div>
   <script>
 ${bundledJs.replace(/<\/script>/gi, '<\\/script>')}

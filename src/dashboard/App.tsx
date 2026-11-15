@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   Rss,
   Newspaper,
-  FileText,
   Settings,
   Check,
   X,
@@ -11,9 +10,7 @@ import {
   Search,
   Filter,
   Clock,
-  Calendar,
   RefreshCw,
-  Cpu,
   Menu,
   ChevronLeft,
   CheckCircle2,
@@ -21,7 +18,8 @@ import {
   Info,
   Lock,
   LogOut,
-  AlertCircle
+  AlertCircle,
+  Trash2
 } from 'lucide-react';
 
 export interface StorySource {
@@ -75,7 +73,7 @@ const ALL_CATEGORIES = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'general' | 'news' | 'reports' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'general' | 'news' | 'settings'>('overview');
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('trendscope_token'));
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!token);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -90,7 +88,6 @@ export default function App() {
     rejectedCount: 0,
     pendingCount: 0,
   });
-  const [reports, setReports] = useState<ReportItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -154,14 +151,7 @@ export default function App() {
       });
       setStories(Array.from(storyMap.values()));
 
-      // 4. Reports
-      const reportsRes = await apiFetch('/api/dashboard/reports');
-      if (reportsRes.ok) {
-        const repData = (await reportsRes.json()) as ReportItem[];
-        setReports(repData);
-      }
-
-      // 5. Settings
+      // 4. Settings
       const setRes = await apiFetch('/api/dashboard/settings');
       if (setRes.ok) {
         const setData = (await setRes.json()) as any;
@@ -303,7 +293,6 @@ export default function App() {
       icon: Newspaper,
       badge: stories.filter((s) => s.status === 'approved').length
     },
-    { id: 'reports' as const, label: 'گزارش‌ها', icon: FileText, badge: 0 },
     { id: 'settings' as const, label: 'تنظیمات', icon: Settings, badge: 0 }
   ];
 
@@ -581,13 +570,9 @@ export default function App() {
             )}
 
             {activeTab === 'news' && (
-              <ApprovedNewsPage stories={approvedStories} />
-            )}
-
-            {activeTab === 'reports' && (
-              <ReportsPage
-                stories={stories.filter((s) => s.score > settings.minScore)}
-                reports={reports}
+              <ApprovedNewsPage
+                stories={approvedStories}
+                onRemove={(id) => handleStoryDecision(id, 'rejected')}
               />
             )}
 
@@ -678,64 +663,32 @@ function OverviewPage({
         })}
       </div>
 
-      {/* Schedule & Next Recording Report */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Next Scheduled Collection */}
-        <div className="bg-[#171717] border border-[#D4AF37]/15 rounded-xl p-6 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center gap-2.5 text-[#D4AF37] mb-3">
-              <RefreshCw size={18} />
-              <h3 className="font-bold text-base text-[#F5F1E8]">
-                زمان‌بندی پایش خودکار
-              </h3>
-            </div>
-            <p className="text-sm text-[#99958C] leading-relaxed mb-4">
-              خزشگر هوشمند هر ۱۲ ساعت (و طبق کرون‌جاب کلودفلر) منابع برتر فناوری را رصد کرده و فقط اخبار کاملاً مرتبط با امتیاز بالای ۸.۵ را استخراج می‌کند.
-            </p>
+      {/* Schedule & Monitoring Status */}
+      <div className="bg-[#171717] border border-[#D4AF37]/15 rounded-xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div>
+          <div className="flex items-center gap-2.5 text-[#D4AF37] mb-2">
+            <RefreshCw size={18} />
+            <h3 className="font-bold text-base text-[#F5F1E8]">
+              زمان‌بندی و پایش هوشمند اخبار فناوری
+            </h3>
           </div>
-          <div className="bg-[#111111] border border-[#D4AF37]/15 rounded-lg p-4 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-[#99958C]">وضعیت پایش</div>
-              <div className="text-sm font-bold text-[#F5F1E8] mt-0.5">
-                فعال و زمان‌بندی‌شده
-              </div>
-            </div>
-            <button
-              onClick={() => onNavigate('general')}
-              className="px-4 py-2 rounded-lg bg-[#D4AF37] text-[#080808] text-xs font-bold hover:bg-[#e3c04b] transition-colors"
-            >
-              مشاهده صف خبرخوان ({pendingCount})
-            </button>
-          </div>
+          <p className="text-xs text-[#99958C] leading-relaxed max-w-2xl">
+            خزشگر هوشمند به طور پیوسته منابع برتر فناوری را رصد کرده و فقط اخبار کاملاً مرتبط با امتیاز بالای ۸.۵ را پس از تحلیل هوش مصنوعی وارد خبرخوان می‌کند.
+          </p>
         </div>
-
-        {/* Next Recording Report */}
-        <div className="bg-[#171717] border border-[#D4AF37]/15 rounded-xl p-6 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center gap-2.5 text-[#D4AF37] mb-3">
-              <Calendar size={18} />
-              <h3 className="font-bold text-base text-[#F5F1E8]">
-                گزارش پکیج روز ضبط
-              </h3>
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="bg-[#111111] border border-[#D4AF37]/15 rounded-lg px-4 py-2.5 text-center">
+            <div className="text-[11px] text-[#99958C]">وضعیت پایش</div>
+            <div className="text-xs font-bold text-emerald-400 mt-0.5">
+              خودکار و فعال
             </div>
-            <p className="text-sm text-[#99958C] leading-relaxed mb-4">
-              گزارش‌های جامع روز ضبط به صورت خودکار در روزهای دوشنبه و جمعه ساعت ۰۷:۰۰ به وقت تهران تولید و به تاپیک Report ارسال می‌شوند.
-            </p>
           </div>
-          <div className="bg-[#111111] border border-[#D4AF37]/15 rounded-lg p-4 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-[#99958C]">موعد گزارش آتی</div>
-              <div className="text-sm font-bold text-[#D4AF37] mt-0.5">
-                دوشنبه و جمعه — ساعت ۰۷:۰۰ تهران
-              </div>
-            </div>
-            <button
-              onClick={() => onNavigate('reports')}
-              className="px-4 py-2 rounded-lg bg-[#171717] border border-[#D4AF37]/30 text-[#F5F1E8] text-xs font-medium hover:border-[#D4AF37] transition-colors"
-            >
-              مشاهده پکیج‌های ضبط
-            </button>
-          </div>
+          <button
+            onClick={() => onNavigate('general')}
+            className="px-4 py-2.5 rounded-lg bg-[#D4AF37] text-[#080808] text-xs font-bold hover:bg-[#e3c04b] transition-colors"
+          >
+            مشاهده صف خبرخوان ({pendingCount})
+          </button>
         </div>
       </div>
 
@@ -886,7 +839,7 @@ function GeneralFeedPage({
             <StoryCard
               key={story.id}
               story={story}
-              interactive={true}
+              mode="general"
               onApprove={() => onDecision(story.id, 'approved')}
               onReject={() => onDecision(story.id, 'rejected')}
             />
@@ -898,9 +851,15 @@ function GeneralFeedPage({
 }
 
 /* ============================================================================
-   3. APPROVED NEWS PAGE (خبرها — فقط خواندنی)
+   3. APPROVED NEWS PAGE (خبرها — همراه با امکان حذف و مدیریت)
    ============================================================================ */
-function ApprovedNewsPage({ stories }: { stories: DashboardStory[] }) {
+function ApprovedNewsPage({
+  stories,
+  onRemove
+}: {
+  stories: DashboardStory[];
+  onRemove: (id: string) => void;
+}) {
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
@@ -933,7 +892,7 @@ function ApprovedNewsPage({ stories }: { stories: DashboardStory[] }) {
         <div className="flex items-center gap-2 text-xs text-[#99958C]">
           <CheckCircle2 size={16} className="text-[#D4AF37]" />
           <span>
-            بایگانی خبرهای تایید شده (فقط خواندنی — {stories.length} خبر)
+            بایگانی خبرهای تایید شده ({stories.length} خبر)
           </span>
         </div>
 
@@ -984,7 +943,7 @@ function ApprovedNewsPage({ stories }: { stories: DashboardStory[] }) {
       {processedStories.length === 0 ? (
         <EmptyBox
           title="هیچ خبر تایید شده‌ای یافت نشد"
-          subtitle="با تایید اخبار از بخش خبرخوان یا تلگرام، خبرها در این بخش به عنوان آرشیو فقط‌خواندنی قرار می‌گیرند."
+          subtitle="با تایید اخبار از بخش خبرخوان یا تلگرام، خبرها در این بخش قرار می‌گیرند."
         />
       ) : (
         <div className="space-y-4">
@@ -992,7 +951,8 @@ function ApprovedNewsPage({ stories }: { stories: DashboardStory[] }) {
             <StoryCard
               key={story.id}
               story={story}
-              interactive={false}
+              mode="news"
+              onRemove={() => onRemove(story.id)}
             />
           ))}
         </div>
@@ -1002,124 +962,7 @@ function ApprovedNewsPage({ stories }: { stories: DashboardStory[] }) {
 }
 
 /* ============================================================================
-   4. REPORTS PAGE (گزارش‌های روز ضبط — دوشنبه و جمعه)
-   ============================================================================ */
-function ReportsPage({
-  stories,
-  reports = []
-}: {
-  stories: DashboardStory[];
-  reports?: ReportItem[];
-}) {
-  const [selectedWindow, setSelectedWindow] = useState<'monday' | 'friday'>('monday');
-
-  const reportWindows = {
-    monday: {
-      id: 'monday',
-      title: 'گزارش ضبط دوشنبه — ساعت ۰۷:۰۰ (Asia/Tehran)',
-      coverage: 'بازه پوشش خبری: جمعه ۰۷:۰۰ تا دوشنبه ۰۷:۰۰',
-      status: 'آماده برای بررسی مجری'
-    },
-    friday: {
-      id: 'friday',
-      title: 'گزارش ضبط جمعه — ساعت ۰۷:۰۰ (Asia/Tehran)',
-      coverage: 'بازه پوشش خبری: دوشنبه ۰۷:۰۰ تا جمعه ۰۷:۰۰',
-      status: 'آرشیو دوره قبل'
-    }
-  };
-
-  const rankedCandidates = useMemo(() => {
-    const sorted = [...stories]
-      .filter((s) => s.status !== 'rejected')
-      .sort((a, b) => b.score - a.score);
-
-    return sorted.slice(0, 15);
-  }, [stories]);
-
-  const currentReport = reportWindows[selectedWindow];
-
-  return (
-    <div className="space-y-6">
-      {/* Window Selector Tabs */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#111111] border border-[#D4AF37]/15 rounded-xl p-4">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setSelectedWindow('monday')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors ${
-              selectedWindow === 'monday'
-                ? 'bg-[#D4AF37] text-[#080808]'
-                : 'bg-[#171717] text-[#99958C] hover:text-[#F5F1E8] border border-[#D4AF37]/15'
-            }`}
-          >
-            دوشنبه ۰۷:۰۰
-          </button>
-          <button
-            onClick={() => setSelectedWindow('friday')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors ${
-              selectedWindow === 'friday'
-                ? 'bg-[#D4AF37] text-[#080808]'
-                : 'bg-[#171717] text-[#99958C] hover:text-[#F5F1E8] border border-[#D4AF37]/15'
-            }`}
-          >
-            جمعه ۰۷:۰۰
-          </button>
-        </div>
-
-        <div className="text-xs text-[#99958C]">
-          تولید خودکار به وقت تهران (Asia/Tehran) • فقط خواندنی
-        </div>
-      </div>
-
-      {/* Report Header Summary */}
-      <div className="bg-[#171717] border border-[#D4AF37]/25 rounded-xl p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#D4AF37]/15 pb-4 mb-4">
-          <div>
-            <h3 className="text-lg font-bold text-[#D4AF37]">
-              {currentReport.title}
-            </h3>
-            <p className="text-xs text-[#99958C] mt-1">
-              {currentReport.coverage}
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs px-3 py-1.5 rounded-full bg-[#111111] border border-[#D4AF37]/30 text-[#F5F1E8]">
-              {rankedCandidates.length} خبر برگزیده (&gt; ۸.۵)
-            </span>
-          </div>
-        </div>
-
-        <p className="text-xs text-[#99958C] leading-relaxed">
-          این گزارش بر اساس فیلتر سخت‌گیرانه هوش مصنوعی تنها مهم‌ترین و مرتبط‌ترین سرخط‌های حوزه فناوری و محاسبات را رتبه‌بندی کرده تا مجری برنامه بالاترین بهره‌وری را در انتخاب سرفصل‌های ضبط داشته باشد.
-        </p>
-      </div>
-
-      {/* Ranked Story List */}
-      <div className="space-y-4">
-        {rankedCandidates.length === 0 ? (
-          <EmptyBox
-            title="هیچ خبر واجد شرایطی برای این بازه ثبت نشده است"
-            subtitle="اخبار جدید با امتیاز بالای ۸.۵ در ساعات آینده به طور خودکار به این پکیج اضافه خواهند شد."
-          />
-        ) : (
-          rankedCandidates.map((story, index) => (
-            <div key={story.id} className="relative">
-              <div className="absolute -top-2.5 right-6 z-10 px-2.5 py-0.5 rounded-md bg-[#D4AF37] text-[#080808] text-[11px] font-bold shadow-md">
-                رتبه {index + 1}
-              </div>
-              <StoryCard
-                story={story}
-                interactive={false}
-              />
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================================
-   5. SETTINGS PAGE (تنظیمات)
+   4. SETTINGS PAGE (تنظیمات)
    ============================================================================ */
 function SettingsPage({
   settings,
@@ -1281,14 +1124,16 @@ function SettingsPage({
    ============================================================================ */
 function StoryCard({
   story,
-  interactive,
+  mode = 'readonly',
   onApprove,
-  onReject
+  onReject,
+  onRemove
 }: {
   story: DashboardStory;
-  interactive?: boolean;
+  mode?: 'general' | 'news' | 'readonly';
   onApprove?: () => void;
   onReject?: () => void;
+  onRemove?: () => void;
 }) {
   return (
     <article className="bg-[#171717] border border-[#D4AF37]/15 rounded-xl p-5 sm:p-6 hover:border-[#D4AF37]/35 transition-colors">
@@ -1313,7 +1158,7 @@ function StoryCard({
 
       {/* Headlines & Persian Summary */}
       <div className="space-y-2.5 mb-5">
-        <h3 className="text-base sm:text-lg font-bold text-[#F5F1E8] leading-relaxed">
+        <h3 className="text-base sm:text-lg font-bold text-[#F5F1E8] leading-relaxed font-heading">
           {story.persianTitle}
         </h3>
 
@@ -1326,12 +1171,12 @@ function StoryCard({
           </p>
         )}
 
-        <p className="text-xs sm:text-sm text-[#F5F1E8]/85 leading-7 pt-1">
+        <p className="text-xs sm:text-sm text-[#F5F1E8]/85 leading-7 pt-1 font-body">
           {story.summary}
         </p>
       </div>
 
-      {/* Footer: Sources + EXACTLY TWO ACTION BUTTONS (تأیید / رد) */}
+      {/* Footer: Sources + Action Buttons */}
       <div className="pt-4 border-t border-[#D4AF37]/15 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         {/* Source Links */}
         <div className="flex flex-wrap items-center gap-2">
@@ -1354,8 +1199,8 @@ function StoryCard({
           )}
         </div>
 
-        {/* Management Buttons in General Feed */}
-        {interactive && (
+        {/* Action Buttons in General Feed */}
+        {mode === 'general' && (
           <div className="flex items-center gap-2.5 self-end sm:self-auto">
             <button
               onClick={onReject}
@@ -1370,6 +1215,20 @@ function StoryCard({
             >
               <Check size={15} />
               <span>تأیید</span>
+            </button>
+          </div>
+        )}
+
+        {/* Delete / Remove Button in News Feed */}
+        {mode === 'news' && onRemove && (
+          <div className="flex items-center self-end sm:self-auto">
+            <button
+              onClick={onRemove}
+              title="حذف از خبرهای تأییدشده"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#111111] border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/15 hover:border-red-500/60 transition-colors"
+            >
+              <Trash2 size={13} />
+              <span>حذف از خبرها</span>
             </button>
           </div>
         )}
