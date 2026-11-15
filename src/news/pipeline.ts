@@ -168,10 +168,17 @@ export async function runNewsPipeline(
       ];
 
       for (const sup of cluster.supportingArticles) {
+        await env.DB.prepare('INSERT OR IGNORE INTO sources (name, url, type) VALUES (?, ?, ?)')
+          .bind(sup.source, `source://${sup.source}`, 'rss')
+          .run();
+        const supSource = await env.DB.prepare('SELECT id FROM sources WHERE name = ?')
+          .bind(sup.source)
+          .first<{ id: number }>();
+
         const supInsert = await env.DB.prepare(
           'INSERT OR IGNORE INTO articles (source_id, title, url, content_snippet, published_at) VALUES (?, ?, ?, ?, ?)'
         )
-          .bind(sourceRecord?.id || 1, sup.title, sup.url, sup.snippet, sup.publishedAt)
+          .bind(supSource?.id || sourceRecord?.id || 1, sup.title, sup.url, sup.snippet, sup.publishedAt)
           .run();
         if (supInsert.meta.last_row_id) {
           await env.DB.prepare('INSERT OR IGNORE INTO story_articles (story_id, article_id) VALUES (?, ?)')
@@ -240,18 +247,35 @@ export async function runNewsPipeline(
   return processedStories;
 }
 
-function extractEntities(text: string): string[] {
-  const commonEntities = [
-    'OpenAI', 'Google', 'Microsoft', 'Apple', 'Meta', 'Nvidia', 'Amazon',
-    'Anthropic', 'Tesla', 'Intel', 'AMD', 'Linux', 'Samsung', 'DeepSeek',
-    'Elon Musk', 'Sam Altman', 'Jensen Huang', 'Sundar Pichai', 'Satya Nadella', 'Mark Zuckerberg'
-  ];
+const ENTITY_MAP: Record<string, string[]> = {
+  'OpenAI': ['openai', 'اوپن ای آی', 'اوپن‌ای‌آی', 'اوپن ای‌ آی', 'اوپن ایای'],
+  'Google': ['google', 'گوگل'],
+  'Microsoft': ['microsoft', 'مایکروسافت'],
+  'Apple': ['apple', 'اپل'],
+  'Meta': ['meta', 'متا'],
+  'Nvidia': ['nvidia', 'انویدیا'],
+  'Amazon': ['amazon', 'آمازون'],
+  'Anthropic': ['anthropic', 'آنتروپیک', 'انتروپیک'],
+  'Tesla': ['tesla', 'تسلا'],
+  'Intel': ['intel', 'اینتل'],
+  'AMD': ['amd', 'ای ام دی', 'ای‌ام‌دی'],
+  'Linux': ['linux', 'لینوکس'],
+  'Samsung': ['samsung', 'سامسونگ'],
+  'DeepSeek': ['deepseek', 'دیپ سیک', 'دیپ‌سیک'],
+  'Elon Musk': ['elon musk', 'ایلان ماسک'],
+  'Sam Altman': ['sam altman', 'سم التمن', 'سام آلتمن', 'سام التمن'],
+  'Jensen Huang': ['jensen huang', 'جنسن هوانگ', 'جن سون هوانگ'],
+  'Sundar Pichai': ['sundar pichai', 'سوندار پیچای'],
+  'Satya Nadella': ['satya nadella', 'ساتیا نادلا'],
+  'Mark Zuckerberg': ['mark zuckerberg', 'مارک زاکربرگ']
+};
 
+function extractEntities(text: string): string[] {
   const found: string[] = [];
   const lower = text.toLowerCase();
-  for (const entity of commonEntities) {
-    if (lower.includes(entity.toLowerCase())) {
-      found.push(entity);
+  for (const [canonical, aliases] of Object.entries(ENTITY_MAP)) {
+    if (aliases.some((alias) => lower.includes(alias.toLowerCase()))) {
+      found.push(canonical);
     }
   }
   return found;

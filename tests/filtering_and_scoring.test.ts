@@ -177,3 +177,49 @@ test('7. Deduplication & preventing duplicate Telegram publishing', () => {
   assert.equal(second.success, false);
   assert.equal(second.duplicate, true, 'Second publish attempt must be detected as duplicate');
 });
+
+test('8. Persian news sources configuration & multilingual clustering', async () => {
+  const { TECH_FEEDS } = await import('../src/news/fetcher.ts');
+  const { clusterArticles, tokenize, normalizePersian } = await import('../src/news/deduplicator.ts');
+
+  // Verify Persian feeds exist
+  const persianFeeds = TECH_FEEDS.filter((f) => f.lang === 'fa');
+  assert.ok(persianFeeds.length >= 7, 'Must have at least 7 verified Persian tech feeds');
+  
+  const feedNames = persianFeeds.map((f) => f.name);
+  assert.ok(feedNames.includes('زومیت'), 'Must include Zoomit');
+  assert.ok(feedNames.includes('دیجیاتو'), 'Must include Digiato');
+  assert.ok(feedNames.includes('ترنجی'), 'Must include Toranji');
+  assert.ok(feedNames.includes('فارنت'), 'Must include Farnet');
+  assert.ok(feedNames.includes('هوشیو'), 'Must include Hooshio');
+
+  // Verify Persian tokenization and normalization
+  const normalized = normalizePersian('تراشه‌هاي هوش مصنوعي مي‌توانند');
+  assert.ok(!normalized.includes('ي'), 'Arabic yeh normalized to Persian');
+  
+  const tokens = tokenize('مدیرعامل پالانتیر: هوش مصنوعی می‌تواند تمام دارایی‌های شما را شناسایی کند');
+  assert.ok(tokens.has('پالانتیر'), 'Extracts Persian keywords');
+  assert.ok(tokens.has('مصنوعی'), 'Extracts Persian keywords');
+
+  // Verify clustering of similar Persian news
+  const clusters = clusterArticles([
+    {
+      title: 'مدیرعامل پالانتیر: هوش مصنوعی می‌تواند تمام دارایی‌های شما را شناسایی کند',
+      url: 'https://zoomit.ir/1',
+      snippet: 'توضیحات خبر اول',
+      publishedAt: new Date().toISOString(),
+      source: 'زومیت',
+    },
+    {
+      title: 'مدیرعامل پالانتیر می‌گوید هوش مصنوعی دارایی‌های شما را شناسایی می‌کند',
+      url: 'https://digiato.com/2',
+      snippet: 'توضیحات خبر دوم',
+      publishedAt: new Date().toISOString(),
+      source: 'دیجیاتو',
+    },
+  ]);
+
+  assert.equal(clusters.length, 1, 'Two similar Persian headlines should cluster into one story');
+  assert.equal(clusters[0].supportingArticles.length, 1, 'One primary, one supporting article');
+});
+

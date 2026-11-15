@@ -1,4 +1,4 @@
-import { FetchedArticle } from './fetcher';
+import type { FetchedArticle } from './fetcher.ts';
 
 export interface ClusteredStoryCandidate {
   primaryArticle: FetchedArticle;
@@ -36,16 +36,24 @@ export function clusterArticles(articles: FetchedArticle[]): ClusteredStoryCandi
   return clusters;
 }
 
-function tokenize(text: string): Set<string> {
-  const clean = text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
+export function normalizePersian(str: string): string {
+  return str
+    .replace(/\u200c/g, ' ')
+    .replace(/[ي]/g, 'ی')
+    .replace(/[ك]/g, 'ک')
+    .replace(/[\u064B-\u065F]/g, '');
+}
+
+export function tokenize(text: string): Set<string> {
+  const normalized = normalizePersian(text.toLowerCase());
+  const clean = normalized
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .split(/\s+/)
     .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
   return new Set(clean);
 }
 
-function computeJaccardSimilarity(setA: Set<string>, setB: Set<string>): number {
+export function computeJaccardSimilarity(setA: Set<string>, setB: Set<string>): number {
   if (setA.size === 0 || setB.size === 0) return 0;
   let intersection = 0;
   for (const item of setA) {
@@ -55,8 +63,14 @@ function computeJaccardSimilarity(setA: Set<string>, setB: Set<string>): number 
   return union === 0 ? 0 : intersection / union;
 }
 
-const STOP_WORDS = new Set([
+export const STOP_WORDS = new Set([
+  // English stop words
   'the', 'and', 'for', 'with', 'that', 'this', 'from', 'about', 'after', 'will', 'have',
   'new', 'how', 'why', 'what', 'its', 'their', 'more', 'into', 'over', 'says', 'said',
   'just', 'than', 'could', 'should', 'would', 'first', 'report', 'reports', 'here',
+  // Persian stop words
+  'این', 'برای', 'است', 'های', 'شد', 'شدن', 'کرد', 'کردن', 'یک', 'به', 'با',
+  'از', 'که', 'در', 'آن', 'تا', 'را', 'بر', 'روی', 'باید', 'می', 'کند',
+  'شود', 'دارد', 'دارند', 'بود', 'بوده', 'پس', 'اما', 'اگر', 'چرا', 'چگونه',
+  'خود', 'بخش', 'دیگر', 'بسیار', 'میان', 'ویژه'
 ]);

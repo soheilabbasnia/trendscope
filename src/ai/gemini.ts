@@ -59,6 +59,8 @@ Return ONLY valid JSON matching this schema:
 }
 
 Note:
+- The input article may be in English or Persian (from Persian tech publications like Zoomit, Digiato, etc.).
+- If the article is already in Persian, refine the title into a crisp, professional Persian headline ("persian_title") and write a clear 2-3 line summary ("persian_summary").
 - If excluded, set "is_technology_or_computing": false and explain in "exclusion_reason".
 - Scores must be honest floats between 1.0 and 10.0 reflecting global tech significance.
 `;

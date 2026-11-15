@@ -8,9 +8,19 @@ export interface SourceArticleRef {
   source: string;
 }
 
+function isLikelyEnglishText(text?: string | null): boolean {
+  if (!text) return false;
+  const latinCount = (text.match(/[a-zA-Z]/g) || []).length;
+  const persianCount = (text.match(/[\u0600-\u06FF]/g) || []).length;
+  return latinCount > persianCount && latinCount > 3;
+}
+
 export function formatStoryGeneralMessage(story: Story, sources: SourceArticleRef[]): string {
   const persianTitle = decodeHtmlEntities(story.persian_title || story.title);
-  const englishTitle = story.title && story.title !== (story.persian_title || '') ? decodeHtmlEntities(story.title) : '';
+  const cleanOriginalTitle = decodeHtmlEntities(story.title || '');
+  const englishTitle = isLikelyEnglishText(cleanOriginalTitle) && cleanOriginalTitle !== persianTitle
+    ? cleanOriginalTitle
+    : '';
   const summary = decodeHtmlEntities(story.persian_summary || 'خلاصه در دسترس نیست.');
   const score = story.combined_score ? story.combined_score.toFixed(1) : '0.0';
   const category = story.primary_category || 'عمومی';
